@@ -5,6 +5,70 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>17 Beauty House</title>
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAkIkOJXWQ-ZZYDk99_8MMQl_fO0jLP0Fo",
+  authDomain: "beautyhouse-cfb92.firebaseapp.com",
+  projectId: "beautyhouse-cfb92",
+  storageBucket: "beautyhouse-cfb92.firebasestorage.app",
+  messagingSenderId: "144418608852",
+  appId: "1:144418608852:web:29d4cdf1a3af1c2d410d41"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+async function fbGet(path) {
+  try { const snap = await getDoc(doc(db, path)); return snap.exists() ? snap.data() : null; } catch(e) { return null; }
+}
+async function fbSet(path, data) {
+  try { await setDoc(doc(db, path), data); } catch(e) { console.error('fbSet',e); }
+}
+async function fbGetCol(col) {
+  try { const snap = await getDocs(collection(db, col)); return snap.docs.map(d=>({_id:d.id,...d.data()})); } catch(e) { return []; }
+}
+async function fbAddDoc(col, data) {
+  try { const ref = await addDoc(collection(db, col), data); return ref.id; } catch(e) { return null; }
+}
+
+window._fbGet=fbGet; window._fbSet=fbSet; window._fbGetCol=fbGetCol; window._fbAddDoc=fbAddDoc;
+
+async function loadFromFirebase() {
+  document.getElementById('fb-loading').style.display='flex';
+  const cfg = await fbGet('store/config');
+  if (cfg) {
+    ['products','shipping','banks','slides','settings','branding','footer','store','faq','tc','discounts','discountEnabled','msgTemplates','productLang','popup'].forEach(k=>{
+      if(cfg[k]!=null) window._S[k]=cfg[k];
+    });
+    if(cfg.orderCounter) window._orderCounter=cfg.orderCounter;
+  }
+  const orders = await fbGetCol('orders');
+  window._S.orders = orders.map(o=>{const{_id,...r}=o;r._fbId=_id;return r;});
+  const customers = await fbGetCol('customers');
+  window._S.customers = customers.map(c=>{const{_id,...r}=c;r._fbId=_id;return r;});
+  const messages = await fbGetCol('messages');
+  window._S.contactMessages = messages.map(m=>{const{_id,...r}=m;r._fbId=_id;return r;});
+  document.getElementById('fb-loading').style.display='none';
+  window._appInit();
+}
+
+window._fbPersist = async function() {
+  const cfg = {
+    products:window._S.products, shipping:window._S.shipping, banks:window._S.banks,
+    slides:window._S.slides, settings:window._S.settings, branding:window._S.branding,
+    footer:window._S.footer, store:window._S.store, faq:window._S.faq, tc:window._S.tc,
+    discounts:window._S.discounts, discountEnabled:window._S.discountEnabled,
+    msgTemplates:window._S.msgTemplates, productLang:window._S.productLang,
+    popup:window._S.popup, orderCounter:window._orderCounter
+  };
+  await fbSet('store/config', cfg);
+};
+
+window.addEventListener('load', () => { if(window._appReady) loadFromFirebase(); else window._fbLoadFn=loadFromFirebase; });
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--pri:#e63946;--prd:#c1121f;--sec:#457b9d;--bg:#f8f9fa;--card:#fff;--text:#222;--muted:#666;--border:#ddd;--r:10px}
@@ -298,9 +362,17 @@ footer{background:#1d3557;color:#fff;padding:36px 18px 18px;margin-top:auto}
 .prod-name-btn:hover{color:var(--pri)}
 @media(max-width:620px){.fr,.fr3{grid-template-columns:1fr}.products-grid{grid-template-columns:1fr 1fr}.modal-btns,.dtog-row{flex-direction:column}.tier-row{grid-template-columns:1fr 1fr auto}.kpi-grid{grid-template-columns:1fr 1fr}.an-2col{grid-template-columns:1fr!important}.prod-modal-overlay{padding:0;align-items:flex-end}.prod-modal-box{border-radius:16px 16px 0 0;max-height:92vh;overflow-y:auto}.prod-modal-img-wrap{max-height:60vw}.prod-modal-body{padding:16px 14px 20px}.checkout-popup-overlay{padding:0;align-items:flex-end}.checkout-popup-box{border-radius:16px 16px 0 0;max-width:100%;max-height:92vh}.checkout-popup-img-wrap{aspect-ratio:1/1}.checkout-popup-body{padding:14px 14px 16px}}
 @media(max-width:380px){.products-grid{grid-template-columns:1fr}.kpi-grid{grid-template-columns:1fr}}
+</style><style>
+#fb-loading{display:none;position:fixed;inset:0;background:rgba(255,255,255,.95);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+.fb-spinner{width:44px;height:44px;border:4px solid #eee;border-top-color:#e63946;border-radius:50%;animation:fbs .8s linear infinite}
+@keyframes fbs{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
+<div id="fb-loading">
+  <div class="fb-spinner"></div>
+  <div style="font-size:.95rem;color:#555;font-weight:600">Loading 17 Beauty House...</div>
+</div>
 <header>
   <div class="hlogo" onclick="showPage('shop')">
     <div id="headerLogoEl" class="logo-emoji">🛍️</div>
@@ -724,101 +796,46 @@ footer{background:#1d3557;color:#fff;padding:36px 18px 18px;margin-top:auto}
   </div>
 </div>
 <script>
-let lang='en',cart=[],receiptBase64='',detectedRegion='',deliveryMode='delivery',orderCounter=0,currentUser=null,cdTimer=null,slideTimer=null,curSlide=0,msgFilter='all',anActiveSection='overview';
+let lang='en',cart=[],receiptBase64='',detectedRegion='',deliveryMode='delivery',currentUser=null,cdTimer=null,slideTimer=null,curSlide=0,msgFilter='all',anActiveSection='overview';
+let orderCounter=0;
+window._orderCounter=0;
 const REGIONS=['West Malaysia 西马','East Malaysia 东马','Singapore'];
 const PCMAP=[
-  {min:1000,max:59999,r:'West Malaysia 西马'},
-  {min:63000,max:68999,r:'West Malaysia 西马'},
-  {min:70000,max:86999,r:'West Malaysia 西马'},
-  {min:88000,max:91399,r:'East Malaysia 东马'},
-  {min:93000,max:98859,r:'East Malaysia 东马'},
-  // Singapore 6-digit postcodes
-  {min:18906,max:829812,r:'Singapore',digits:6}
+  {min:1000,max:59999,r:'West Malaysia 西马'},{min:63000,max:68999,r:'West Malaysia 西马'},
+  {min:70000,max:86999,r:'West Malaysia 西马'},{min:88000,max:91399,r:'East Malaysia 东马'},
+  {min:93000,max:98859,r:'East Malaysia 东马'},{min:18906,max:829812,r:'Singapore',digits:6}
 ];
 const COLORS=['#e63946','#2196F3','#4CAF50','#FF9800','#9C27B0','#009688','#F06292','#1d3557'];
 let S={
-  products:[
-    {id:1,nameEn:'Sample T-Shirt',nameCn:'样品T恤',descEn:'Comfortable tee',descCn:'舒适T恤',basePrice:29.90,img:'👕',variants:[{name:'S',price:29.90,weight:220,shipOverride:null},{name:'M',price:29.90,weight:230,shipOverride:null},{name:'L',price:31.90,weight:240,shipOverride:null},{name:'XL',price:33.90,weight:260,shipOverride:null}]},
-    {id:2,nameEn:'Tote Bag',nameCn:'手提袋',descEn:'Eco-friendly bag',descCn:'环保袋',basePrice:15.90,img:'👜',variants:[{name:'Black',price:15.90,weight:150,shipOverride:null},{name:'White',price:15.90,weight:150,shipOverride:null},{name:'Beige',price:17.90,weight:155,shipOverride:null}]}
-  ],
+  products:[],
   shipping:{'West Malaysia 西马':{method:'weight',tiers:[{maxWeight:500,fee:8},{maxWeight:1000,fee:11},{maxWeight:2000,fee:15},{maxWeight:99999,fee:20}],amtTiers:[{maxAmt:50,fee:10},{maxAmt:100,fee:6},{maxAmt:99999,fee:0}],freeAbove:150},'East Malaysia 东马':{method:'weight',tiers:[{maxWeight:500,fee:15},{maxWeight:1000,fee:20},{maxWeight:2000,fee:28},{maxWeight:99999,fee:38}],amtTiers:[{maxAmt:100,fee:18},{maxAmt:200,fee:10},{maxAmt:99999,fee:0}],freeAbove:300},'Singapore':{method:'weight',tiers:[{maxWeight:500,fee:20},{maxWeight:1000,fee:28},{maxWeight:2000,fee:38},{maxWeight:99999,fee:55}],amtTiers:[{maxAmt:150,fee:25},{maxAmt:300,fee:15},{maxAmt:99999,fee:0}],freeAbove:500}},
-  banks:[{id:'b1',name:'Maybank',accName:'My Shop',accNo:'1234567890',extra:'Please transfer exact amount',qr:'',active:true},{id:'b2',name:'CIMB',accName:'My Shop',accNo:'9876543210',extra:'',qr:'',active:false}],
-  slides:[{img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'Welcome to Our Shop',titleCn:'欢迎光临',subEn:'Quality products delivered to your door',subCn:'优质产品送货上门'}],
+  banks:[{id:'b1',name:'Maybank',accName:'17 Beauty House',accNo:'',extra:'',qr:'',active:true}],
+  slides:[{img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'Welcome to 17 Beauty House',titleCn:'欢迎光临17 Beauty House',subEn:'Quality beauty & wellness products',subCn:'优质美妆健康产品'}],
   settings:{password:'17admin@1717',email:'17beauty@17shop.com'},
-  branding:{shopEn:'My Shop',shopCn:'我的商店',logo:'🛍️',color:'#e63946',cdEnabled:false,cdEnd:'',cdLabel:'⏰ Sale ends in:',googleMap:'',googleMapLabel:'📍 Find us on Google Maps',showMap:false},
-  footer:{company:'My Shop',address:'No.1, Jalan Contoh, 75000 Melaka',phone:'+60 12-345 6789',email:'hello@myshop.com',waNum:'60123456789',waMsg:"Hi, I'd like to enquire about your products.",contactEnabled:true},
-  store:{addr:'No.1, Jalan Contoh, 75000 Melaka',hours:'Mon–Sat 10am–8pm',phone:'+60 12-345 6789',map:'https://maps.google.com'},
-  faq:[{q:'How long does delivery take?',a:'3–7 working days.'},{q:'Can I return items?',a:'Yes, within 7 days.'}],
-  tc:'1. All sales are final unless defective.\n2. Prices in RM.',
-  orders:[],customers:[],contactMessages:[],
-  discounts:[{code:'SAVE10',type:'pct',value:10,minOrder:0,active:true,used:0},{code:'RM5OFF',type:'fixed',value:5,minOrder:50,active:true,used:0}],
-  discountEnabled:true,
-  msgTemplates:['Thank you for contacting us! We will reply within 24 hours.','Your order has been confirmed and will be shipped soon.','Please provide your order number so we can assist you better.'],
-  productLang:'both',
-  popup:{enabled:false,img:'',title:'',titleCn:'',msg:'',msgCn:'',btnText:'Continue Shopping',btnTextCn:'继续购物',showOrder:true}
+  branding:{shopEn:'17 Beauty House',shopCn:'17 Beauty House',logo:'🛍️',color:'#e63946',cdEnabled:false,cdEnd:'',cdLabel:'⏰ Sale ends in:',googleMap:'',googleMapLabel:'📍 Find us on Google Maps',showMap:false},
+  footer:{company:'17 Beauty House',address:'',phone:'',email:'',waNum:'',waMsg:"Hi, I'd like to enquire about your products.",contactEnabled:true},
+  store:{addr:'',hours:'',phone:'',map:''},
+  faq:[],tc:'',orders:[],customers:[],contactMessages:[],
+  discounts:[],discountEnabled:true,msgTemplates:['Thank you for contacting us! We will reply within 24 hours.'],
+  productLang:'both',popup:{enabled:false,img:'',title:'',titleCn:'',msg:'',msgCn:'',btnText:'Continue Shopping',btnTextCn:'继续购物',showOrder:true}
 };
-function persist(){try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter}));}catch(e){}}
-function hydrate(){try{const d=JSON.parse(localStorage.getItem('shopv9')||'null');if(d){Object.assign(S,d);orderCounter=d.orderCounter||0;if(!S.contactMessages)S.contactMessages=[];if(!S.discounts)S.discounts=[];if(S.discountEnabled==null)S.discountEnabled=true;if(!S.msgTemplates)S.msgTemplates=[];if(!S.productLang)S.productLang='both';if(!S.slides||!S.slides.length)S.slides=[{img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'Welcome',titleCn:'欢迎',subEn:'',subCn:''}];
-// Migrate old discounts to new schema
-S.discounts.forEach(dc=>{if(!dc.usedBy)dc.usedBy={};if(dc.maxUses==null)dc.maxUses=0;if(dc.maxPerCust==null)dc.maxPerCust=0;if(dc.maxQty==null)dc.maxQty=0;if(!dc.products)dc.products=[];if(!dc.noCombine)dc.noCombine=[];if(!dc.expiry)dc.expiry='';});
-// Migrate old products to have images array
-S.products.forEach(p=>{if(!p.images)p.images=[];});
-if(!S.popup)S.popup={enabled:false,img:'',title:'',titleCn:'',msg:'',msgCn:'',btnText:'Continue Shopping',btnTextCn:'继续购物',showOrder:true};
-if(S.footer.contactEnabled==null)S.footer.contactEnabled=true;
-if(S.popup.showOrder==null)S.popup.showOrder=true;
-// Migrate orders region names
-S.orders.forEach(o=>{if(o.region==='Peninsular Malaysia')o.region='West Malaysia 西马';if(o.region==='Sabah & Sarawak')o.region='East Malaysia 东马';});}}catch(e){}}
-function saveCU(remember=true){
-  try{
-    if(currentUser){
-      if(remember){
-        localStorage.setItem('shopCU9',JSON.stringify(currentUser));
-        localStorage.setItem('shopRememberMe9','1');
-        // Save identifier for auto-fill
-        const ident=currentUser.email||currentUser.phone||'';
-        if(ident)localStorage.setItem('shopLastLogin9',ident);
-      }else{
-        // Session only — store in sessionStorage, clear from localStorage
-        localStorage.removeItem('shopCU9');
-        sessionStorage.setItem('shopCU9',JSON.stringify(currentUser));
-      }
-    }else{
-      localStorage.removeItem('shopCU9');
-      sessionStorage.removeItem('shopCU9');
-    }
-  }catch(e){}
-}
-function loadCU(){
-  try{
-    const ls=localStorage.getItem('shopCU9');
-    const ss=sessionStorage.getItem('shopCU9');
-    const raw=ls||ss;
-    if(raw)currentUser=JSON.parse(raw);
-  }catch(e){}
-}
-function getRememberedLogin(){
-  try{return localStorage.getItem('shopLastLogin9')||'';}catch(e){return '';}
-}
-function isRememberMeOn(){
-  try{return localStorage.getItem('shopRememberMe9')==='1';}catch(e){return true;}
-}
-function genId(){return'TWZB#'+String(++orderCounter).padStart(5,'0');}
+window._S = S;
+
+function persist(){if(window._fbPersist){window._fbPersist().catch(e=>console.error('persist',e));}}
+function genId(){orderCounter=window._orderCounter+1;window._orderCounter=orderCounter;return'TWZB#'+String(orderCounter).padStart(5,'0');}
+function saveCU(remember=true){try{if(currentUser){if(remember){localStorage.setItem('shopCU9',JSON.stringify(currentUser));localStorage.setItem('shopRememberMe9','1');const id=currentUser.email||currentUser.phone||'';if(id)localStorage.setItem('shopLastLogin9',id);}else{localStorage.removeItem('shopCU9');sessionStorage.setItem('shopCU9',JSON.stringify(currentUser));}}else{localStorage.removeItem('shopCU9');sessionStorage.removeItem('shopCU9');}}catch(e){}}
+function loadCU(){try{const ls=localStorage.getItem('shopCU9');const ss=sessionStorage.getItem('shopCU9');const raw=ls||ss;if(raw){const cu=JSON.parse(raw);const fresh=S.customers.find(c=>c.id===cu.id||c.email===cu.email);currentUser=fresh||cu;}}catch(e){}}
+function getRememberedLogin(){try{return localStorage.getItem('shopLastLogin9')||'';}catch(e){return '';}}
+function isRememberMeOn(){try{return localStorage.getItem('shopRememberMe9')==='1';}catch(e){return true;}}
 function esc(s){return(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function pad(n){return String(n).padStart(2,'0');}
-function getRegion(pc){
-  const n=parseInt(pc);
-  const len=pc.trim().length;
-  for(const r of PCMAP){
-    // If entry has a digits requirement, check length too
-    if(r.digits&&len!==r.digits)continue;
-    if(!r.digits&&len!==5)continue;
-    if(n>=r.min&&n<=r.max)return r.r;
-  }
-  return null;
-}
+function getRegion(pc){const n=parseInt(pc);const len=pc.trim().length;for(const r of PCMAP){if(r.digits&&len!==r.digits)continue;if(!r.digits&&len!==5)continue;if(n>=r.min&&n<=r.max)return r.r;}return null;}
 function calcFee(region,items){const ovr=items.filter(i=>i.shipOverride!=null);if(ovr.length===items.length)return Math.max(...ovr.map(i=>i.shipOverride));const s=S.shipping[region];if(!s)return 0;const sub=items.reduce((a,i)=>a+i.price*i.qty,0);if(s.method==='amount'){const ts=[...(s.amtTiers||[])].sort((a,b)=>a.maxAmt-b.maxAmt);for(const t of ts)if(sub<=t.maxAmt)return t.fee;return 0;}else{if(s.freeAbove&&sub>=s.freeAbove)return 0;const tw=items.reduce((a,i)=>a+(i.weight||0)*i.qty,0);const ts=[...(s.tiers||[])].sort((a,b)=>a.maxWeight-b.maxWeight);for(const t of ts)if(tw<=t.maxWeight)return t.fee;return ts.length?ts[ts.length-1].fee:0;}}
 function toggleLang(){lang=lang==='en'?'cn':'en';document.querySelector('.lang-btn').textContent=lang==='en'?'中文':'EN';document.querySelectorAll('[data-en]').forEach(el=>el.textContent=lang==='en'?el.dataset.en:el.dataset.cn);renderProducts();renderCart();renderSlideshow();applyBranding();}
 function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.hnav button').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');document.getElementById('nav-'+p)?.classList.add('active');if(p==='cart')renderCart();if(p==='account')renderAccountPage();if(p==='checkout')renderCheckoutPage();if(p==='admin'){renderProductList();renderShippingForm();renderBankAdmin();loadAdminInputs();loadPopupAdminInputs();renderOrdersList();renderCustomerList();renderMessagesList();renderColorSwatches();renderFaqAdmin();renderSlideEditorList();document.getElementById('tcText').value=S.tc||'';renderDiscountList();document.getElementById('discToggle').checked=S.discountEnabled;}}
+window._appInit = function(){applyBranding();renderProducts();renderSlideshow();renderFooter();addVarRow();loadCU();}
+window._appReady=true;
+if(window._fbLoadFn)window._fbLoadFn();
 function renderSlideshow(){const slides=S.slides||[];const container=document.getElementById('slidesContainer');const dots=document.getElementById('slideDots');if(!slides.length){container.innerHTML=`<div class="slide active"><div class="slide-bg" style="background:var(--pri)"></div><div class="slide-content"><h2>${esc(S.branding.shopEn||'My Shop')}</h2></div></div>`;dots.innerHTML='';return;}container.innerHTML=slides.map((sl,i)=>`<div class="slide${i===0?' active':''}" id="slide-${i}">${sl.img?`<div class="slide-bg" style="background-image:url(${sl.img})"></div>`:'<div class="slide-bg" style="background:var(--pri)"></div>'}<div class="slide-overlay" style="background:${sl.overlayColor||'#000'};opacity:${sl.overlayOpacity!=null?sl.overlayOpacity:.35}"></div><div class="slide-content"><h2>${esc(lang==='en'?sl.titleEn:sl.titleCn)}</h2>${(lang==='en'?sl.subEn:sl.subCn)?`<p>${esc(lang==='en'?sl.subEn:sl.subCn)}</p>`:''}<button class="hero-cta" onclick="document.getElementById('prodSec').scrollIntoView({behavior:'smooth'})">Shop Now 立即购物</button></div></div>`).join('');dots.innerHTML=slides.map((_,i)=>`<div class="sdot${i===0?' active':''}" onclick="goSlide(${i})"></div>`).join('');curSlide=0;startSlideAuto();}
 function goSlide(n){const total=(S.slides||[]).length;if(!total)return;document.getElementById('slide-'+curSlide)?.classList.remove('active');document.querySelectorAll('.sdot')[curSlide]?.classList.remove('active');curSlide=(n+total)%total;document.getElementById('slide-'+curSlide)?.classList.add('active');document.querySelectorAll('.sdot')[curSlide]?.classList.add('active');}
 function moveSlide(d){goSlide(curSlide+d);}
@@ -1822,7 +1839,7 @@ document.addEventListener('click',function(e){
   if(ov&&e.target===ov)closeCheckoutPopup();
 });
 
-hydrate();loadCU();applyBranding();renderProducts();renderSlideshow();renderFooter();addVarRow();
+
 </script>
 </body>
 </html>
