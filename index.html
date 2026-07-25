@@ -64,7 +64,67 @@ window._fbPersist = async function() {
     msgTemplates:window._S.msgTemplates, productLang:window._S.productLang,
     popup:window._S.popup, orderCounter:window._orderCounter
   };
-  await fbSet('store/config', cfg);
+  // Save config + all collections in parallel
+  const saves = [fbSet('store/config', cfg)];
+  // Save each order individually
+  for(const o of window._S.orders||[]) {
+    const {_fbId,...data}=o;
+    if(_fbId) saves.push(fbSet('orders/'+_fbId, data));
+    else {
+      const id = await fbAddDoc('orders', data);
+      if(id) o._fbId = id;
+    }
+  }
+  // Save each customer individually
+  for(const c of window._S.customers||[]) {
+    const {_fbId,...data}=c;
+    if(_fbId) saves.push(fbSet('customers/'+_fbId, data));
+    else {
+      const id = await fbAddDoc('customers', data);
+      if(id) c._fbId = id;
+    }
+  }
+  // Save each message individually
+  for(const m of window._S.contactMessages||[]) {
+    const {_fbId,...data}=m;
+    if(_fbId) saves.push(fbSet('messages/'+_fbId, data));
+    else {
+      const id = await fbAddDoc('messages', data);
+      if(id) m._fbId = id;
+    }
+  }
+  await Promise.all(saves);
+};
+
+// Quick save single order
+window._saveOrderFb = async function(order) {
+  const {_fbId,...data} = order;
+  if(_fbId) {
+    await fbSet('orders/'+_fbId, data);
+  } else {
+    const id = await fbAddDoc('orders', data);
+    if(id) order._fbId = id;
+  }
+};
+// Quick save single customer
+window._saveCustFb = async function(cu) {
+  const {_fbId,...data} = cu;
+  if(_fbId) {
+    await fbSet('customers/'+_fbId, data);
+  } else {
+    const id = await fbAddDoc('customers', data);
+    if(id) cu._fbId = id;
+  }
+};
+// Quick save single message
+window._saveMsgFb = async function(msg) {
+  const {_fbId,...data} = msg;
+  if(_fbId) {
+    await fbSet('messages/'+_fbId, data);
+  } else {
+    const id = await fbAddDoc('messages', data);
+    if(id) msg._fbId = id;
+  }
 };
 
 window.addEventListener('load', () => { if(window._appReady) loadFromFirebase(); else window._fbLoadFn=loadFromFirebase; });
@@ -859,7 +919,9 @@ function renderFooter(){const f=S.footer;document.getElementById('fCompanyName')
   if(contactFormEl)contactFormEl.innerHTML=S.footer.contactEnabled!==false?`<div style="display:flex;flex-direction:column;gap:6px"><input id="ctN" placeholder="Name 姓名" style="padding:6px 8px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.1);color:#fff;font-size:.8rem"/><input id="ctP" placeholder="Phone 电话" style="padding:6px 8px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.1);color:#fff;font-size:.8rem"/><input id="ctE" placeholder="Email" style="padding:6px 8px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.1);color:#fff;font-size:.8rem"/><input id="ctO" placeholder="Order No. (optional)" style="padding:6px 8px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.1);color:#fff;font-size:.8rem"/><textarea id="ctM" placeholder="Message 留言" rows="3" style="padding:6px 8px;border:1px solid rgba(255,255,255,.25);border-radius:5px;background:rgba(255,255,255,.1);color:#fff;font-size:.8rem;resize:vertical"></textarea><button onclick="submitContact()" style="padding:7px;background:var(--pri);color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;font-size:.82rem">Send 发送</button><div id="ctOK" style="font-size:.76rem;color:#a5d6a7;display:none">✅ Sent!</div></div>`:'';
 }
 function tFaq(i){document.getElementById('fa-'+i).classList.toggle('open');}
-function submitContact(){const n=document.getElementById('ctN').value.trim(),m=document.getElementById('ctM').value.trim();if(!n||!m){alert('Fill name & message.');return;}if(!S.contactMessages)S.contactMessages=[];S.contactMessages.unshift({id:'MSG'+Date.now(),date:new Date().toLocaleString(),name:n,phone:document.getElementById('ctP').value.trim(),email:document.getElementById('ctE').value.trim(),orderRef:document.getElementById('ctO').value.trim(),message:m,read:false,replies:[],accountId:currentUser?.id||''});persist();document.getElementById('ctOK').style.display='block';['ctN','ctP','ctE','ctO','ctM'].forEach(id=>document.getElementById(id).value='');setTimeout(()=>document.getElementById('ctOK').style.display='none',4000);}
+function submitContact(){const n=document.getElementById('ctN').value.trim(),m=document.getElementById('ctM').value.trim();if(!n||!m){alert('Fill name & message.');return;}if(!S.contactMessages)S.contactMessages=[];const newMsg={id:'MSG'+Date.now(),date:new Date().toLocaleString(),name:n,phone:document.getElementById('ctP').value.trim(),email:document.getElementById('ctE').value.trim(),orderRef:document.getElementById('ctO').value.trim(),message:m,read:false,replies:[],accountId:currentUser?.id||''};
+S.contactMessages.unshift(newMsg);
+if(window._saveMsgFb)window._saveMsgFb(newMsg).then(()=>persist());else persist();document.getElementById('ctOK').style.display='block';['ctN','ctP','ctE','ctO','ctM'].forEach(id=>document.getElementById(id).value='');setTimeout(()=>document.getElementById('ctOK').style.display='none',4000);}
 function saveFooterContact(){S.footer.company=document.getElementById('fCompany').value;S.footer.address=document.getElementById('fAddress').value;S.footer.phone=document.getElementById('fPhone2').value;S.footer.email=document.getElementById('fEmail2').value;S.footer.waNum=document.getElementById('fWaNum').value;S.footer.waMsg=document.getElementById('fWaMsg').value;S.footer.contactEnabled=document.getElementById('contactEnabled')?.checked!==false;renderFooter();persist();showMsg('contactMsg','success','Saved!');}
 function saveStorePickup(){S.store={addr:document.getElementById('storeAddr').value,hours:document.getElementById('storeHours').value,phone:document.getElementById('storePhone').value,map:document.getElementById('storeMap').value};persist();showMsg('storeMsg','success','Saved!');}
 function renderFaqAdmin(){document.getElementById('faqList').innerHTML=(S.faq||[]).map((f,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:flex-start"><div style="flex:1;display:flex;flex-direction:column;gap:3px"><input type="text" value="${esc(f.q)}" id="faq-q-${i}"/><input type="text" value="${esc(f.a)}" id="faq-a-${i}"/></div><button class="del-btn" onclick="rmFaq(${i})">✕</button></div>`).join('');}
@@ -874,7 +936,7 @@ function renderConvMsgs(m){
   return msgs.map(r=>`<div class="chat-msg ${r.role==='admin'?'admin':'customer'}"><div style="white-space:pre-wrap;word-break:break-word;line-height:1.55">${esc(r.text)}</div><div class="cmeta">${r.role==='admin'?'Admin':'Customer'} · ${r.date}</div></div>`).join('');
 }
 function toggleConv(id,el,msgId){const d=document.getElementById(id);const isOpen=d.classList.contains('open');d.classList.toggle('open');const m=S.contactMessages.find(x=>x.id===msgId);if(m&&!m.read&&!isOpen){m.read=true;persist();el.classList.remove('unread');const h=el.querySelector('h4');if(h)h.textContent=h.textContent.replace('🔴 ','');renderMessagesList();}if(!isOpen){const cm=document.getElementById('cm-'+msgId);if(cm)cm.scrollTop=cm.scrollHeight;}}
-function sendAdminReply(msgId){const input=document.getElementById('ri-'+msgId);const text=input?.value.trim();if(!text)return;const m=S.contactMessages.find(x=>x.id===msgId);if(!m)return;if(!m.replies)m.replies=[];m.replies.push({role:'admin',text,date:new Date().toLocaleString()});persist();const cm=document.getElementById('cm-'+msgId);if(cm){cm.innerHTML=renderConvMsgs(m);cm.scrollTop=cm.scrollHeight;}input.value='';}
+function sendAdminReply(msgId){const input=document.getElementById('ri-'+msgId);const text=input?.value.trim();if(!text)return;const m=S.contactMessages.find(x=>x.id===msgId);if(!m)return;if(!m.replies)m.replies=[];m.replies.push({role:'admin',text,date:new Date().toLocaleString()});if(window._saveMsgFb)window._saveMsgFb(m).then(()=>persist());else persist();const cm=document.getElementById('cm-'+msgId);if(cm){cm.innerHTML=renderConvMsgs(m);cm.scrollTop=cm.scrollHeight;}input.value='';}
 function markMsgRead(id){const m=S.contactMessages.find(x=>x.id===id);if(m){m.read=true;persist();renderMessagesList();}}
 function delMsg(id){if(confirm('Delete?')){S.contactMessages=S.contactMessages.filter(x=>x.id!==id);persist();renderMessagesList();}}
 function clearMsgFilter(){['msgFName','msgFPhone','msgFEmail'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderMessagesList();}
@@ -1051,7 +1113,9 @@ function lwRegister(){
   const cu={id:'CU'+Date.now(),name,email,phone,joinDate:new Date().toLocaleString(),joinDateRaw:new Date().toISOString(),orders:[]};
   S.customers.push(cu);
   const remember=document.getElementById('lwRememberMeReg')?.checked!==false;
-  currentUser=cu;saveCU(remember);persist();renderCheckoutPage();
+  currentUser=cu;saveCU(remember);
+  if(window._saveCustFb)window._saveCustFb(cu).then(()=>persist());else persist();
+  renderCheckoutPage();
 }
 function getActiveBanks(){return(S.banks||[]).filter(b=>b.active);}
 function renderBankSection(){const active=getActiveBanks();const wrap=document.getElementById('bankSelWrap');if(!wrap)return;if(!active.length){wrap.innerHTML=`<p style="font-size:.85rem;color:var(--muted)">No bank configured.</p>`;return;}if(active.length===1){const b=active[0];wrap.innerHTML=`<div class="bank-detail-box"><h4>🏦 ${esc(b.name)}</h4><p><b>Account Name:</b> ${esc(b.accName)}</p><p><b>Account No.:</b> ${esc(b.accNo)}</p>${b.extra?`<p style="color:#777;font-size:.82rem;margin-top:4px">${esc(b.extra)}</p>`:''}${b.qr?`<img src="${b.qr}" class="bank-qr" alt="QR"/>`:''}</div>`;return;}wrap.innerHTML=`<select id="bankSelect" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.87rem;margin-bottom:10px" onchange="renderSelBank()"><option value="">-- Select Bank --</option>${active.map((b,i)=>`<option value="${i}">${esc(b.name)}</option>`).join('')}</select><div id="bankDetailDisplay"></div>`;}
@@ -1114,7 +1178,13 @@ function setErr(id,show){const i=document.getElementById(id);const m=document.ge
 function previewReceipt(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{receiptBase64=ev.target.result;document.getElementById('receiptPreview').src=ev.target.result;document.getElementById('receiptPreview').style.display='block';document.getElementById('uploadText').textContent='✅ Uploaded';document.getElementById('err-receipt').classList.remove('show');};r.readAsDataURL(f);}
 function openConfirmModal(){const name=document.getElementById('custName').value.trim();const phone=document.getElementById('custPhone').value.trim();const email=document.getElementById('custEmail').value.trim();const addr=deliveryMode==='delivery'?document.getElementById('custAddr').value.trim():'';const custBank=document.getElementById('custBank').value.trim();const ref=document.getElementById('refNo').value.trim();const checked=document.getElementById('confirmCheck')?.checked;let e=false;if(setErr('custName',!name))e=true;if(setErr('custPhone',!phone))e=true;if(setErr('custEmail',!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)))e=true;if(deliveryMode==='delivery'&&setErr('custPostcode',!detectedRegion))e=true;if(deliveryMode==='delivery'&&setErr('custAddr',!addr))e=true;if(setErr('custBank',!custBank))e=true;if(setErr('refNo',!ref))e=true;const nr=!receiptBase64;document.getElementById('err-receipt').classList.toggle('show',nr);if(nr)e=true;const ccEl=document.getElementById('err-confirmCheck');if(ccEl)ccEl.classList.toggle('show',!checked);if(!checked)e=true;if(e){document.querySelector('.err,.errmsg.show')?.scrollIntoView?.({behavior:'smooth',block:'center'});return;}const sub=cart.reduce((a,x)=>a+x.price*x.qty,0);const fee=deliveryMode==='pickup'?0:calcFee(detectedRegion,cart);const disc=getDiscountAmt(sub);const remarks=document.getElementById('checkoutRemarks')?.value||window._cartRemarks||'';document.getElementById('modalContent').innerHTML=`<div class="msec"><h4>Delivery</h4><p>${deliveryMode==='pickup'?'🏪 Store Pickup':'🚚 Delivery'}</p></div><div class="msec"><h4>Customer</h4><p>${name} | ${phone}</p><p>${email}</p>${deliveryMode==='delivery'?`<p>${document.getElementById('custPostcode').value} ${addr}</p>`:''}</div><div class="msec"><h4>Items</h4>${cart.map(i=>`<p>${lang==='en'?i.nameEn:i.nameCn}${i.variation?' ('+i.variation+')':''} × ${i.qty} = RM ${(i.price*i.qty).toFixed(2)}</p>`).join('')}</div>${remarks?`<div class="msec"><h4>Remarks</h4><p>${esc(remarks)}</p></div>`:''}<div class="msec"><h4>Payment Details</h4><p><b>Bank:</b> ${custBank}</p><p><b>Ref No.:</b> ${ref}</p>${receiptBase64?`<img src="${receiptBase64}" style="max-width:100%;max-height:200px;border-radius:7px;margin-top:5px;border:1px solid var(--border);display:block"/>`:''}</div><div class="msec"><h4>Total</h4><p>Sub: RM ${sub.toFixed(2)} · Ship: RM ${fee.toFixed(2)}${disc>0?' · Discount: −RM '+disc.toFixed(2):''}</p><p style="font-weight:700;color:var(--pri)">Total: RM ${Math.max(0,sub+fee-disc).toFixed(2)}</p></div>`;document.getElementById('confirmModal').classList.add('show');}
 function closeModal(){document.getElementById('confirmModal').classList.remove('show');}
-function submitOrder(){closeModal();const name=document.getElementById('custName').value.trim(),phone=document.getElementById('custPhone').value.trim(),email=document.getElementById('custEmail').value.trim();const pc=deliveryMode==='delivery'?document.getElementById('custPostcode').value.trim():'';const addr=deliveryMode==='delivery'?document.getElementById('custAddr').value.trim():'Store Pickup';const custBank=document.getElementById('custBank').value.trim(),ref=document.getElementById('refNo').value.trim();const remarks=document.getElementById('checkoutRemarks')?.value||window._cartRemarks||'';const sub=cart.reduce((a,x)=>a+x.price*x.qty,0),fee=deliveryMode==='pickup'?0:calcFee(detectedRegion,cart);const disc=getDiscountAmt(sub);const grandTotal=Math.max(0,sub+fee-disc);const order={id:genId(),date:new Date().toLocaleString(),dateRaw:new Date().toISOString(),name,phone,email,postcode:pc,addr,custBank,ref,remarks,region:deliveryMode==='pickup'?'Pickup':detectedRegion,deliveryMode,items:JSON.parse(JSON.stringify(cart)),subtotal:sub,shipping:fee,discount:disc,discountCode:appliedDiscount?.code||'',total:grandTotal,receipt:receiptBase64,status:'pending',tracking:'',accountEmail:email,isNew:true};if(appliedDiscount){const dc=S.discounts.find(d=>d.code===appliedDiscount.code);if(dc){dc.used=(dc.used||0)+1;if(email){if(!dc.usedBy)dc.usedBy={};dc.usedBy[email]=(dc.usedBy[email]||0)+1;}}}appliedDiscount=null;S.orders.push(order);let cu=S.customers.find(c=>c.email===email||c.phone===phone);if(!cu){cu={id:'CU'+Date.now(),name,email,phone,joinDate:new Date().toLocaleString(),joinDateRaw:new Date().toISOString(),orders:[]};S.customers.push(cu);}if(!cu.orders)cu.orders=[];cu.orders.push(order.id);currentUser=cu;saveCU();cart=[];receiptBase64='';detectedRegion='';window._cartRemarks='';document.getElementById('cartBadge').textContent=0;persist();setTimeout(()=>{showPage('account');window._viewOrderId=order.id;setTimeout(()=>showCheckoutPopup(false,order),400);},400);}
+function submitOrder(){closeModal();const name=document.getElementById('custName').value.trim(),phone=document.getElementById('custPhone').value.trim(),email=document.getElementById('custEmail').value.trim();const pc=deliveryMode==='delivery'?document.getElementById('custPostcode').value.trim():'';const addr=deliveryMode==='delivery'?document.getElementById('custAddr').value.trim():'Store Pickup';const custBank=document.getElementById('custBank').value.trim(),ref=document.getElementById('refNo').value.trim();const remarks=document.getElementById('checkoutRemarks')?.value||window._cartRemarks||'';const sub=cart.reduce((a,x)=>a+x.price*x.qty,0),fee=deliveryMode==='pickup'?0:calcFee(detectedRegion,cart);const disc=getDiscountAmt(sub);const grandTotal=Math.max(0,sub+fee-disc);const order={id:genId(),date:new Date().toLocaleString(),dateRaw:new Date().toISOString(),name,phone,email,postcode:pc,addr,custBank,ref,remarks,region:deliveryMode==='pickup'?'Pickup':detectedRegion,deliveryMode,items:JSON.parse(JSON.stringify(cart)),subtotal:sub,shipping:fee,discount:disc,discountCode:appliedDiscount?.code||'',total:grandTotal,receipt:receiptBase64,status:'pending',tracking:'',accountEmail:email,isNew:true};if(appliedDiscount){const dc=S.discounts.find(d=>d.code===appliedDiscount.code);if(dc){dc.used=(dc.used||0)+1;if(email){if(!dc.usedBy)dc.usedBy={};dc.usedBy[email]=(dc.usedBy[email]||0)+1;}}}appliedDiscount=null;S.orders.push(order);let cu=S.customers.find(c=>c.email===email||c.phone===phone);if(!cu){cu={id:'CU'+Date.now(),name,email,phone,joinDate:new Date().toLocaleString(),joinDateRaw:new Date().toISOString(),orders:[]};S.customers.push(cu);}if(!cu.orders)cu.orders=[];cu.orders.push(order.id);currentUser=cu;saveCU();cart=[];receiptBase64='';detectedRegion='';window._cartRemarks='';document.getElementById('cartBadge').textContent=0;
+// Save to Firebase individually for instant sync
+Promise.all([
+  window._saveOrderFb?window._saveOrderFb(order):Promise.resolve(),
+  window._saveCustFb?window._saveCustFb(cu):Promise.resolve()
+]).then(()=>persist());
+setTimeout(()=>{showPage('account');window._viewOrderId=order.id;setTimeout(()=>showCheckoutPopup(false,order),400);},400);}
 let _viewOrderId=null;
 function renderAccountPage(){const wrap=document.getElementById('accountWrap');if(!currentUser){wrap.innerHTML=`<div class="account-card" style="max-width:420px;margin:0 auto">
   <div class="ac-tabs"><button class="active" onclick="acTab('login',this)">Login 登录</button><button onclick="acTab('register',this)">Register 注册</button></div>
@@ -1154,7 +1224,7 @@ function acExpandMsg(msgId,btn){
   const cm=document.getElementById('achat-'+msgId);
   if(cm)setTimeout(()=>cm.scrollTop=cm.scrollHeight,50);
 }
-function sendCustReply(msgId){const input=document.getElementById('acri-'+msgId);const text=input?.value.trim();if(!text)return;const m=S.contactMessages.find(x=>x.id===msgId);if(!m)return;if(!m.replies)m.replies=[];m.replies.push({role:'customer',text,date:new Date().toLocaleString()});persist();const cm=document.getElementById('achat-'+msgId);if(cm){cm.innerHTML=renderConvMsgs(m);cm.scrollTop=cm.scrollHeight;}input.value='';}
+function sendCustReply(msgId){const input=document.getElementById('acri-'+msgId);const text=input?.value.trim();if(!text)return;const m=S.contactMessages.find(x=>x.id===msgId);if(!m)return;if(!m.replies)m.replies=[];m.replies.push({role:'customer',text,date:new Date().toLocaleString()});if(window._saveMsgFb)window._saveMsgFb(m).then(()=>persist());else persist();const cm=document.getElementById('achat-'+msgId);if(cm){cm.innerHTML=renderConvMsgs(m);cm.scrollTop=cm.scrollHeight;}input.value='';}
 function acTab(t,btn){document.querySelectorAll('.ac-tabs button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById('acLoginForm').style.display=t==='login'?'':'none';document.getElementById('acRegForm').style.display=t==='register'?'':'none';}
 function doLogin(){
   const id=document.getElementById('loginId').value.trim();
@@ -1172,7 +1242,9 @@ function doRegister(){
   const cu={id:'CU'+Date.now(),name,email,phone,joinDate:new Date().toLocaleString(),joinDateRaw:new Date().toISOString(),orders:[]};
   S.customers.push(cu);
   const remember=document.getElementById('rememberMeReg')?.checked!==false;
-  currentUser=cu;saveCU(remember);persist();renderAccountPage();
+  currentUser=cu;saveCU(remember);
+  if(window._saveCustFb)window._saveCustFb(cu).then(()=>persist());else persist();
+  renderAccountPage();
 }
 function doLogout(){
   currentUser=null;
@@ -1460,13 +1532,13 @@ function adminSaveOrder(orderId){
   o.subtotal=o.items.reduce((a,i)=>a+i.price*i.qty,0);
   o.total=Math.max(0,o.subtotal+o.shipping-(o.discount||0));
   o.isNew=false;
-  persist();
+  if(window._saveOrderFb)window._saveOrderFb(o).then(()=>persist());else persist();
   showMsg('eo-msg','success','Order saved!');
   setTimeout(()=>{document.getElementById('adminOrderModal').classList.remove('show');applyFilters();},1200);
 }
-function confirmO(id){const o=S.orders.find(x=>x.id===id);if(o){o.status='confirmed';o.isNew=false;persist();applyFilters();}}
-function setTrack(id){const o=S.orders.find(x=>x.id===id);const t=document.getElementById('trk-'+id)?.value.trim();if(o&&t){o.tracking=t;o.status='shipped';o.isNew=false;persist();applyFilters();}}
-function markReady(id){const o=S.orders.find(x=>x.id===id);const n=document.getElementById('trk-'+id)?.value.trim()||'Ready for pickup';if(o){o.tracking=n;o.status='ready';o.isNew=false;persist();applyFilters();}}
+function confirmO(id){const o=S.orders.find(x=>x.id===id);if(o){o.status='confirmed';o.isNew=false;if(window._saveOrderFb)window._saveOrderFb(o).then(()=>persist());else persist();applyFilters();}}
+function setTrack(id){const o=S.orders.find(x=>x.id===id);const t=document.getElementById('trk-'+id)?.value.trim();if(o&&t){o.tracking=t;o.status='shipped';o.isNew=false;if(window._saveOrderFb)window._saveOrderFb(o).then(()=>persist());else persist();applyFilters();}}
+function markReady(id){const o=S.orders.find(x=>x.id===id);const n=document.getElementById('trk-'+id)?.value.trim()||'Ready for pickup';if(o){o.tracking=n;o.status='ready';o.isNew=false;if(window._saveOrderFb)window._saveOrderFb(o).then(()=>persist());else persist();applyFilters();}}
 function renderCustomerList(){const fn=(document.getElementById('custFName')?.value||'').toLowerCase();const fe=(document.getElementById('custFEmail')?.value||'').toLowerCase();const fp=(document.getElementById('custFPhone')?.value||'').toLowerCase();const ft=document.getElementById('custFType')?.value||'all';const fs=document.getElementById('custFSort')?.value||'date-desc';let custs=[...S.customers].filter(c=>{if(fn&&!c.name.toLowerCase().includes(fn))return false;if(fe&&!(c.email||'').toLowerCase().includes(fe))return false;if(fp&&!(c.phone||'').toLowerCase().includes(fp))return false;const oc=(c.orders||[]).length;if(ft==='new'&&oc!==1)return false;if(ft==='returning'&&oc<=1)return false;if(ft==='none'&&oc>0)return false;return true;});custs.sort((a,b)=>{const aOc=(a.orders||[]).length,bOc=(b.orders||[]).length;const aTot=S.orders.filter(o=>(a.orders||[]).includes(o.id)||o.accountEmail===a.email).reduce((s,o)=>s+o.total,0);const bTot=S.orders.filter(o=>(b.orders||[]).includes(o.id)||o.accountEmail===b.email).reduce((s,o)=>s+o.total,0);if(fs==='date-desc')return new Date(b.joinDateRaw||b.joinDate)-new Date(a.joinDateRaw||a.joinDate);if(fs==='date-asc')return new Date(a.joinDateRaw||a.joinDate)-new Date(b.joinDateRaw||b.joinDate);if(fs==='orders-desc')return bOc-aOc;if(fs==='spend-desc')return bTot-aTot;if(fs==='name-asc')return a.name.localeCompare(b.name);return 0;});const el=document.getElementById('customerList');const ss=document.getElementById('custSummary');const anyF=fn||fe||fp||ft!=='all';if(anyF){ss.className='search-summary show';ss.innerHTML=`👥 Showing <b>${custs.length}</b> of ${S.customers.length} customers`;}else ss.className='search-summary';if(!custs.length){el.innerHTML=`<div class="empty">No customers match.</div>`;return;}el.innerHTML=custs.map(c=>{const co=S.orders.filter(o=>o.accountEmail===c.email||(c.orders||[]).includes(o.id));const tot=co.reduce((a,o)=>a+o.total,0);const oc=co.length;const type=oc===0?'<span style="color:var(--muted);font-size:.74rem">No orders</span>':oc===1?'<span style="background:#cfe2ff;color:#084298;padding:2px 7px;border-radius:20px;font-size:.72rem;font-weight:700">🆕 New</span>':'<span style="background:#d1e7dd;color:#0f5132;padding:2px 7px;border-radius:20px;font-size:.72rem;font-weight:700">🔄 Returning</span>';return`<div class="cust-card"><div style="flex:1"><p><b>${esc(c.name)}</b> ${type}</p>${c.email?`<p>${esc(c.email)}</p>`:''} ${c.phone?`<p>${esc(c.phone)}</p>`:''}<p class="hint">Joined: ${c.joinDate}</p></div><div style="text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:5px"><p style="font-weight:700;color:var(--pri)">${oc} orders</p><p class="hint">RM ${tot.toFixed(2)}</p><button class="edit-btn" onclick="viewCustDetail('${c.id}')" style="margin-top:3px">👁 View</button></div></div>`;}).join('');}
 function clearCustFilter(){['custFName','custFEmail','custFPhone'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});document.getElementById('custFType').value='all';document.getElementById('custFSort').value='date-desc';renderCustomerList();}
 function viewCustDetail(custId){
