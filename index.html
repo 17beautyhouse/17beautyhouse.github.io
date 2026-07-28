@@ -21,10 +21,24 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// Clean undefined/null nested values for Firebase
+function cleanForFb(obj) {
+  if (Array.isArray(obj)) return obj.map(cleanForFb);
+  if (obj !== null && typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v === undefined) out[k] = null;
+      else out[k] = cleanForFb(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
 async function fbGet(path){try{const snap=await getDoc(doc(db,path));return snap.exists()?snap.data():null;}catch(e){return null;}}
-async function fbSet(path,data){try{await setDoc(doc(db,path),data);}catch(e){console.error('fbSet',e);}}
+async function fbSet(path,data){try{await setDoc(doc(db,path),cleanForFb(data));}catch(e){console.error('fbSet',e);}}
 async function fbGetCol(col){try{const snap=await getDocs(collection(db,col));return snap.docs.map(d=>({_id:d.id,...d.data()}));}catch(e){return[];}}
-async function fbAddDoc(col,data){try{const ref=await addDoc(collection(db,col),data);return ref.id;}catch(e){return null;}}
+async function fbAddDoc(col,data){try{const ref=await addDoc(collection(db,col),cleanForFb(data));return ref.id;}catch(e){return null;}}
 async function fbDel(path){try{await deleteDoc(doc(db,path));}catch(e){console.error('fbDel',e);}}
 
 window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddDoc=fbAddDoc;window._fbDel=fbDel;
@@ -934,6 +948,33 @@ function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.r
 window._appInit=function(){applyBranding();renderProducts();renderSlideshow();renderFooter();addVarRow();loadCU();}
 window._appReady=true;
 if(window._fbLoadFn)window._fbLoadFn();
+function renderCart(){
+  const c=document.getElementById('cartContent');if(!c)return;
+  if(!cart.length){c.innerHTML=`<div class="empty">Your cart is empty. 购物车是空的。</div>`;return;}
+  const sub=cart.reduce((a,x)=>a+x.price*x.qty,0);
+  c.innerHTML=`<table class="cart-table"><thead><tr><th></th><th>Product</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Total</th><th></th></tr></thead><tbody>${cart.map((it,i)=>{const th=it.img&&(it.img.startsWith('http')||it.img.startsWith('data:'))?`<img src="${it.img}" class="cart-thumb">`:`<div class="cart-thumb">${it.img||'📦'}</div>`;return`<tr><td>${th}</td><td><b>${lang==='en'?it.nameEn:it.nameCn}</b></td><td>${it.variation||'—'}</td><td><div class="qty-row"><button onclick="cartChQ(${i},-1)">−</button><span>${it.qty}</span><button onclick="cartChQ(${i},1)">+</button></div></td><td>RM ${it.price.toFixed(2)}</td><td>RM ${(it.price*it.qty).toFixed(2)}</td><td><button class="remove-btn" onclick="cartRm(${i})">✕</button></td></tr>`;}).join('')}</tbody></table><div class="summary-box"><div class="s-row"><span>Subtotal</span><span>RM ${sub.toFixed(2)}</span></div><div class="s-row"><span>Shipping (at checkout)</span><span>—</span></div><div class="s-row total"><span>Est. Total</span><span>RM ${sub.toFixed(2)}+</span></div></div><div class="fg" style="margin-top:11px"><label style="font-weight:600;font-size:.85rem;display:block;margin-bottom:5px">📝 Remarks (optional)</label><textarea id="cartRemarks" rows="2" placeholder="e.g. Gift wrap, special instructions..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.86rem"></textarea></div><button class="checkout-btn" onclick="goCheckout()">Proceed to Checkout 继续结账</button>`;
+}
+function cartChQ(i,d){cart[i].qty=Math.max(1,cart[i].qty+d);document.getElementById('cartBadge').textContent=cart.reduce((a,c)=>a+c.qty,0);renderCart();}
+function cartRm(i){cart.splice(i,1);document.getElementById('cartBadge').textContent=cart.reduce((a,c)=>a+c.qty,0);renderCart();}
+function goCheckout(){
+  if(!cart.length){alert('Cart is empty.');return;}
+  const rem=document.getElementById('cartRemarks');
+  if(rem)window._cartRemarks=rem.value;
+  showPage('checkout');
+}
+function toggleLang(){
+  lang=lang==='en'?'cn':'en';
+  const lb=document.querySelector('.lang-btn');if(lb)lb.textContent=lang==='en'?'中文':'EN';
+  document.querySelectorAll('[data-en]').forEach(el=>el.textContent=lang==='en'?el.dataset.en:el.dataset.cn);
+  renderProducts();
+  const cartPage=document.getElementById('page-cart');
+  if(cartPage&&cartPage.classList.contains('active'))renderCart();
+  renderSlideshow();applyBranding();
+  const btn=document.getElementById('pdm-addbtn');if(btn)btn.textContent=lang==='en'?'Add to Cart 加入购物车':'加入购物车';
+  const varSel=document.getElementById('pdm-var');if(varSel&&varSel.options[0])varSel.options[0].text=lang==='en'?'-- Select variant --':'-- 请选择规格 --';
+  renderFooterInfoBox();
+}
+function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.hnav button').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');document.getElementById('nav-'+p)?.classList.add('active');if(p==='cart')renderCart();if(p==='account')renderAccountPage();if(p==='checkout')renderCheckoutPage();if(p==='admin'){renderProductList();renderShippingForm();renderBankAdmin();loadAdminInputs();loadPopupAdminInputs();renderOrdersList();renderCustomerList();renderMessagesList();renderColorSwatches();renderFaqAdmin();renderSlideEditorList();document.getElementById('tcText').value=S.tc||'';const sft2=document.getElementById('showFaqToggle');if(sft2)sft2.checked=S.footer.showFaq!==false;const stt2=document.getElementById('showTcToggle');if(stt2)stt2.checked=S.footer.showTc!==false;loadFooterInfoAdmin();renderDiscountList();document.getElementById('discToggle').checked=S.discountEnabled;}}
 function renderSlideshow(){const slides=S.slides||[];const container=document.getElementById('slidesContainer');const dots=document.getElementById('slideDots');if(!slides.length){container.innerHTML=`<div class="slide active"><div class="slide-bg" style="background:var(--pri)"></div><div class="slide-content"><h2>${esc(S.branding.shopEn||'My Shop')}</h2></div></div>`;dots.innerHTML='';return;}container.innerHTML=slides.map((sl,i)=>`<div class="slide${i===0?' active':''}" id="slide-${i}">${sl.img?`<div class="slide-bg" style="background-image:url(${sl.img})"></div>`:'<div class="slide-bg" style="background:var(--pri)"></div>'}<div class="slide-overlay" style="background:${sl.overlayColor||'#000'};opacity:${sl.overlayOpacity!=null?sl.overlayOpacity:.35}"></div><div class="slide-content"><h2>${esc(lang==='en'?sl.titleEn:sl.titleCn)}</h2>${(lang==='en'?sl.subEn:sl.subCn)?`<p>${esc(lang==='en'?sl.subEn:sl.subCn)}</p>`:''}${S.branding.showShopNow!==false?`<button class="hero-cta" onclick="document.getElementById('prodSec').scrollIntoView({behavior:'smooth'})">Shop Now 立即购物</button>`:''}</div></div>`).join('');dots.innerHTML=slides.map((_,i)=>`<div class="sdot${i===0?' active':''}" onclick="goSlide(${i})"></div>`).join('');curSlide=0;startSlideAuto();}
 function goSlide(n){const total=(S.slides||[]).length;if(!total)return;document.getElementById('slide-'+curSlide)?.classList.remove('active');document.querySelectorAll('.sdot')[curSlide]?.classList.remove('active');curSlide=(n+total)%total;document.getElementById('slide-'+curSlide)?.classList.add('active');document.querySelectorAll('.sdot')[curSlide]?.classList.add('active');}
 function moveSlide(d){goSlide(curSlide+d);}
