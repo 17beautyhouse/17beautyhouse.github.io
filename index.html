@@ -21,6 +21,24 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
+// Remove base64 images from object (replace with placeholder)
+function stripImages(obj) {
+  if (Array.isArray(obj)) return obj.map(stripImages);
+  if (obj !== null && typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (typeof v === 'string' && v.startsWith('data:image')) {
+        out[k] = '__IMG__';
+      } else {
+        out[k] = stripImages(v);
+      }
+    }
+    return out;
+  }
+  return obj === undefined ? null : obj;
+}
+
+// Clean undefined for Firebase
 function cleanForFb(obj) {
   if (Array.isArray(obj)) return obj.map(cleanForFb);
   if (obj !== null && typeof obj === 'object') {
@@ -34,46 +52,98 @@ function cleanForFb(obj) {
 }
 
 async function fbGet(path){try{const s=await getDoc(doc(db,path));return s.exists()?s.data():null;}catch(e){console.error('fbGet',e);return null;}}
-async function fbSet(path,data){try{await setDoc(doc(db,path),cleanForFb(data));}catch(e){console.error('fbSet',path,e);}}
+async function fbSet(path,data){try{await setDoc(doc(db,path),data);}catch(e){console.error('fbSet',path,e);}}
 async function fbGetCol(col){try{const s=await getDocs(collection(db,col));return s.docs.map(d=>({_id:d.id,...d.data()}));}catch(e){console.error('fbGetCol',e);return[];}}
-async function fbAddDoc(col,data){try{const r=await addDoc(collection(db,col),cleanForFb(data));return r.id;}catch(e){console.error('fbAddDoc',e);return null;}}
+async function fbAddDoc(col,data){try{const r=await addDoc(collection(db,col),data);return r.id;}catch(e){console.error('fbAddDoc',e);return null;}}
 async function fbDel(path){try{await deleteDoc(doc(db,path));}catch(e){console.error('fbDel',e);}}
 
 window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddDoc=fbAddDoc;window._fbDel=fbDel;
 
+// Save products: text in config, images in productImages/{id}
+async function saveProducts(products) {
+  const saves = [];
+  for (const p of products) {
+    // Save images separately
+    if (p.id) {
+      const imgData = { imgs: p.imgs||[], img: p.img||'' };
+      saves.push(fbSet('productImages/'+p.id, cleanForFb(imgData)));
+    }
+  }
+  await Promise.all(saves);
+  // Return products without base64 images
+  return products.map(p => {
+    const stripped = {...p};
+    // strip base64 from img field
+    if (typeof stripped.img === 'string' && stripped.img.startsWith('data:image')) stripped.img = '__IMG__';
+    // strip base64 from imgs array
+    if (Array.isArray(stripped.imgs)) stripped.imgs = stripped.imgs.map(i => typeof i==='string'&&i.startsWith('data:image')?'__IMG__':i);
+    return cleanForFb(stripped);
+  });
+}
+
+// Load and restore images into products
+async function loadProductImages(products) {
+  const imgDocs = await fbGetCol('productImages');
+  const imgMap = {};
+  imgDocs.forEach(d => { imgMap[d._id] = d; });
+  return products.map(p => {
+    const imgData = imgMap[p.id];
+    if (imgData) {
+      if (imgData.img && imgData.img !== '__IMG__') p.img = imgData.img;
+      if (imgData.imgs) p.imgs = imgData.imgs;
+    }
+    return p;
+  });
+}
+
 async function loadFromFirebase(){
   document.getElementById('fb-loading').style.display='flex';
   try {
-    const cfg=await fbGet('store/config');
+    const cfg = await fbGet('store/config');
     if(cfg){
       ['products','shipping','banks','slides','settings','branding','footer','store','faq','tc','discounts','discountEnabled','msgTemplates','productLang','popup'].forEach(k=>{if(cfg[k]!=null)window._S[k]=cfg[k];});
       if(cfg.orderCounter!=null)window._orderCounter=cfg.orderCounter;
+    }
+    // Restore product images from separate collection
+    if(window._S.products && window._S.products.length > 0) {
+      window._S.products = await loadProductImages(window._S.products);
     }
     const [orders,customers,messages]=await Promise.all([fbGetCol('orders'),fbGetCol('customers'),fbGetCol('messages')]);
     window._S.orders=orders.map(o=>{const{_id,...r}=o;r._fbId=_id;return r;});
     window._S.customers=customers.map(c=>{const{_id,...r}=c;r._fbId=_id;return r;});
     window._S.contactMessages=messages.map(m=>{const{_id,...r}=m;r._fbId=_id;return r;});
-  } catch(e) { console.error('loadFromFirebase error',e); }
+  } catch(e){console.error('loadFromFirebase error',e);}
   document.getElementById('fb-loading').style.display='none';
   window._appInit();
 }
 
 window._fbPersist=async function(){
   try {
-    const cfg={products:window._S.products,shipping:window._S.shipping,banks:window._S.banks,slides:window._S.slides,settings:window._S.settings,branding:window._S.branding,footer:window._S.footer,store:window._S.store,faq:window._S.faq,tc:window._S.tc,discounts:window._S.discounts,discountEnabled:window._S.discountEnabled,msgTemplates:window._S.msgTemplates,productLang:window._S.productLang,popup:window._S.popup,orderCounter:window._orderCounter};
+    // Save products with images in separate docs
+    const productsForConfig = await saveProducts(window._S.products||[]);
+    const cfg={
+      products:productsForConfig,
+      shipping:window._S.shipping,banks:window._S.banks,
+      slides:cleanForFb(window._S.slides),settings:window._S.settings,
+      branding:cleanForFb(window._S.branding),footer:window._S.footer,
+      store:window._S.store,faq:window._S.faq,tc:window._S.tc,
+      discounts:window._S.discounts,discountEnabled:window._S.discountEnabled,
+      msgTemplates:window._S.msgTemplates,productLang:window._S.productLang,
+      popup:cleanForFb(window._S.popup),orderCounter:window._orderCounter
+    };
     await fbSet('store/config',cfg);
     const saves=[];
-    for(const o of window._S.orders||[]){const{_fbId,...data}=o;if(_fbId)saves.push(fbSet('orders/'+_fbId,data));else{const id=await fbAddDoc('orders',data);if(id)o._fbId=id;}}
-    for(const c of window._S.customers||[]){const{_fbId,...data}=c;if(_fbId)saves.push(fbSet('customers/'+_fbId,data));else{const id=await fbAddDoc('customers',data);if(id)c._fbId=id;}}
-    for(const m of window._S.contactMessages||[]){const{_fbId,...data}=m;if(_fbId)saves.push(fbSet('messages/'+_fbId,data));else{const id=await fbAddDoc('messages',data);if(id)m._fbId=id;}}
+    for(const o of window._S.orders||[]){const{_fbId,...data}=o;if(_fbId)saves.push(fbSet('orders/'+_fbId,cleanForFb(data)));else{const id=await fbAddDoc('orders',cleanForFb(data));if(id)o._fbId=id;}}
+    for(const c of window._S.customers||[]){const{_fbId,...data}=c;if(_fbId)saves.push(fbSet('customers/'+_fbId,cleanForFb(data)));else{const id=await fbAddDoc('customers',cleanForFb(data));if(id)c._fbId=id;}}
+    for(const m of window._S.contactMessages||[]){const{_fbId,...data}=m;if(_fbId)saves.push(fbSet('messages/'+_fbId,cleanForFb(data)));else{const id=await fbAddDoc('messages',cleanForFb(data));if(id)m._fbId=id;}}
     await Promise.all(saves);
     console.log('✅ Firebase sync done');
-  } catch(e) { console.error('❌ Firebase sync error',e); }
+  } catch(e){console.error('❌ Firebase sync error',e);}
 };
 
-window._saveOrderFb=async function(o){const{_fbId,...d}=o;if(_fbId)await fbSet('orders/'+_fbId,d);else{const id=await fbAddDoc('orders',d);if(id)o._fbId=id;}};
-window._saveCustFb=async function(c){const{_fbId,...d}=c;if(_fbId)await fbSet('customers/'+_fbId,d);else{const id=await fbAddDoc('customers',d);if(id)c._fbId=id;}};
-window._saveMsgFb=async function(m){const{_fbId,...d}=m;if(_fbId)await fbSet('messages/'+_fbId,d);else{const id=await fbAddDoc('messages',d);if(id)m._fbId=id;}};
+window._saveOrderFb=async function(o){const{_fbId,...d}=o;const cd=cleanForFb(d);if(_fbId)await fbSet('orders/'+_fbId,cd);else{const id=await fbAddDoc('orders',cd);if(id)o._fbId=id;}};
+window._saveCustFb=async function(c){const{_fbId,...d}=c;const cd=cleanForFb(d);if(_fbId)await fbSet('customers/'+_fbId,cd);else{const id=await fbAddDoc('customers',cd);if(id)c._fbId=id;}};
+window._saveMsgFb=async function(m){const{_fbId,...d}=m;const cd=cleanForFb(d);if(_fbId)await fbSet('messages/'+_fbId,cd);else{const id=await fbAddDoc('messages',cd);if(id)m._fbId=id;}};
 window._delOrderFb=async function(id){if(id)await fbDel('orders/'+id);};
 window._delCustFb=async function(id){if(id)await fbDel('customers/'+id);};
 window._delMsgFb=async function(id){if(id)await fbDel('messages/'+id);};
