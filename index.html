@@ -178,18 +178,28 @@ async function loadFromFirebase(){
       // images[] array with {url, selected} objects
       const images = Array.isArray(imgData.images) ? imgData.images : [];
       const imgs = Array.isArray(imgData.imgs) ? imgData.imgs : [];
-      // Main display image: first from images[].url, then imgs[0], then imgData.img
+      // Main display image - try all possible sources
       let img = '';
-      if(imgData.img && imgData.img !== '__IMG__' && imgData.img !== '') {
+      // 1. Try imgData.img directly
+      if(imgData.img && imgData.img !== '__IMG__' && imgData.img.length > 100) {
         img = imgData.img;
-      } else if(images.length > 0) {
-        const firstImg = images.find(i=>i&&i.url&&i.url!=='__IMG__'&&i.url.startsWith('data:'));
-        if(firstImg) img = firstImg.url;
-      } else if(imgs.length > 0) {
-        const firstI = imgs.find(i=>i&&i!=='__IMG__'&&typeof i==='string'&&i.startsWith('data:'));
-        if(firstI) img = firstI;
       }
-      console.log('product', rest.id, '-> imgData found:', !!Object.keys(imgData).length, 'img len:', img.length);
+      // 2. Try images[].url (any non-empty url)
+      if(!img && images.length > 0) {
+        for(const im of images) {
+          if(im && im.url && im.url !== '__IMG__' && im.url.length > 100) {
+            img = im.url; break;
+          }
+        }
+      }
+      // 3. Try imgs[] array
+      if(!img && imgs.length > 0) {
+        for(const im of imgs) {
+          if(im && im !== '__IMG__' && typeof im === 'string' && im.length > 100) {
+            img = im; break;
+          }
+        }
+      }
       return {...rest, img, imgs, images};
     });
 
