@@ -64,13 +64,15 @@ function stripBase64(obj) {
 }
 
 function cleanFb(obj) {
+  if (obj === undefined || obj === null) return null;
+  if (typeof obj === 'function') return null;
   if (Array.isArray(obj)) return obj.map(cleanFb);
-  if (obj && typeof obj === 'object') {
+  if (typeof obj === 'object') {
     const out = {};
-    for (const [k,v] of Object.entries(obj)) out[k] = v===undefined ? null : cleanFb(v);
+    for (const [k,v] of Object.entries(obj)) out[k] = cleanFb(v);
     return out;
   }
-  return obj===undefined ? null : obj;
+  return obj;
 }
 
 async function fbGet(path){try{const s=await getDoc(doc(db,path));return s.exists()?s.data():null;}catch(e){console.error('fbGet',e);return null;}}
@@ -84,13 +86,27 @@ window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddD
 // ── Save product: text in products/{id}, images in productImages/{id} ──
 async function saveProduct(p) {
   if (!p.id) return;
-  // Compress & save images separately
+  // Compress & save ALL images separately in productImages/{id}
   const imgs = await Promise.all((p.imgs||[]).map(i=>compressImage(i)));
   const img  = await compressImage(p.img||'');
-  await fbSet('productImages/'+p.id, cleanFb({img, imgs}));
-  // Save text only in products collection
-  const {img:_i, imgs:_is, ...textOnly} = p;
-  await fbSet('products/'+p.id, cleanFb({...textOnly, img:'__IMG__', imgs:imgs.map(()=>'__IMG__')}));
+  // Also handle 'images' array (objects with url field)
+  const images = await Promise.all((p.images||[]).map(async im=>{
+    if(im && im.url && im.url.startsWith('data:image')) {
+      return {...im, url: await compressImage(im.url)};
+    }
+    return im;
+  }));
+  await fbSet('productImages/'+p.id, cleanFb({img, imgs, images}));
+  // Save ONLY text in products/{id} - strip ALL image data
+  const textOnly = {};
+  for (const [k,v] of Object.entries(p)) {
+    if (k === 'img' || k === 'imgs' || k === 'images') continue;
+    textOnly[k] = v === undefined ? null : v;
+  }
+  textOnly.img = '__IMG__';
+  textOnly.imgs = (p.imgs||[]).map(()=>'__IMG__');
+  textOnly.images = (p.images||[]).map(im=>({...im, url:'__IMG__'}));
+  await fbSet('products/'+p.id, cleanFb(textOnly));
 }
 
 // ── Save slide: text in store/config, image in slides/slide_{index} ──
@@ -139,7 +155,7 @@ async function loadFromFirebase(){
     window._S.products = prodDocs.map(p=>{
       const {_id,...rest}=p;
       const imgData = imgMap[_id]||{};
-      return {...rest, img:imgData.img||'', imgs:imgData.imgs||[]};
+      return {...rest, img:imgData.img||'', imgs:imgData.imgs||[], images:imgData.images||[]};
     });
 
     // Merge slide images
