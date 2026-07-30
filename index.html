@@ -124,8 +124,15 @@ async function saveProduct(p) {
 // ── Save slide: text in store/config, image in slides/slide_{index} ──
 async function saveSlide(slide, index) {
   const img = await compressImage(slide.img||'');
-  await fbSet('slides/slide_'+index, {img});
-  return {...slide, img:'__IMG__'};
+  // Save image + text data together in slides/{index}
+  await fbSet('slides/slide_'+index, cleanFb({
+    img,
+    overlayColor: slide.overlayColor||'#000000',
+    overlayOpacity: slide.overlayOpacity||0.35,
+    titleEn: slide.titleEn||'', titleCn: slide.titleCn||'',
+    subEn: slide.subEn||'', subCn: slide.subCn||''
+  }));
+  return {...slide, img: img ? '__IMG__' : ''};
 }
 
 // ── Save order receipt separately ──
@@ -167,20 +174,43 @@ async function loadFromFirebase(){
     window._S.products = prodDocs.map(p=>{
       const {_id,...rest}=p;
       const imgData = imgMap[_id]||{};
-      const images = imgData.images||[];
-      const imgs = imgData.imgs||[];
-      // Restore main img: prefer imgData.img, fallback to first images[].url
-      const img = imgData.img && imgData.img !== '__IMG__' && imgData.img !== ''
-        ? imgData.img
-        : (images[0]&&images[0].url&&images[0].url!=='__IMG__' ? images[0].url : (imgs[0]||''));
+      // images[] array with {url, selected} objects
+      const images = Array.isArray(imgData.images) ? imgData.images : [];
+      const imgs = Array.isArray(imgData.imgs) ? imgData.imgs : [];
+      // Main display image: first from images[].url, then imgs[0], then imgData.img
+      let img = '';
+      if(imgData.img && imgData.img !== '__IMG__' && imgData.img !== '') {
+        img = imgData.img;
+      } else if(images.length > 0) {
+        const firstImg = images.find(i=>i&&i.url&&i.url!=='__IMG__'&&i.url.startsWith('data:'));
+        if(firstImg) img = firstImg.url;
+      } else if(imgs.length > 0) {
+        const firstI = imgs.find(i=>i&&i!=='__IMG__'&&typeof i==='string');
+        if(firstI) img = firstI;
+      }
       return {...rest, img, imgs, images};
     });
 
     // Merge slide images
     const slideImgMap = {};
     slideDocs.forEach(d=>{ slideImgMap[d._id]=d.img||''; });
-    if(cfg && cfg.slides) {
-      window._S.slides = cfg.slides.map((s,i)=>({...s, img:slideImgMap['slide_'+i]||s.img||''}));
+    // Rebuild slides from slideImgMap if cfg.slides exists, otherwise use defaults
+    if(cfg && cfg.slides && cfg.slides.length > 0) {
+      window._S.slides = cfg.slides.map((s,i)=>{
+        const slideImg = slideImgMap['slide_'+i]||'';
+        return {...s, img: slideImg !== '__IMG__' ? slideImg : ''};
+      });
+    } else if(slideDocs.length > 0) {
+      // Build slides from slide docs directly
+      window._S.slides = slideDocs
+        .sort((a,b)=>a._id.localeCompare(b._id))
+        .map(d=>({
+          img: d.img && d.img!=='__IMG__' ? d.img : '',
+          overlayColor: d.overlayColor||'#000000',
+          overlayOpacity: d.overlayOpacity||0.35,
+          titleEn: d.titleEn||'',titleCn: d.titleCn||'',
+          subEn: d.subEn||'',subCn: d.subCn||''
+        }));
     }
 
     // Merge order receipts
@@ -1150,7 +1180,7 @@ function renderCart(){
   const c=document.getElementById('cartContent');if(!c)return;
   if(!cart.length){c.innerHTML=`<div class="empty">Your cart is empty. 购物车是空的。</div>`;return;}
   const sub=cart.reduce((a,x)=>a+x.price*x.qty,0);
-  c.innerHTML=`<table class="cart-table"><thead><tr><th></th><th>Product</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Total</th><th></th></tr></thead><tbody>${cart.map((it,i)=>{const th=it.img&&(it.img.startsWith('http')||it.img.startsWith('data:'))?`<img src="${it.img}" class="cart-thumb">`:`<div class="cart-thumb">${it.img||'📦'}</div>`;return`<tr><td>${th}</td><td><b>${lang==='en'?it.nameEn:it.nameCn}</b></td><td>${it.variation||'—'}</td><td><div class="qty-row"><button onclick="cartChQ(${i},-1)">−</button><span>${it.qty}</span><button onclick="cartChQ(${i},1)">+</button></div></td><td>RM ${it.price.toFixed(2)}</td><td>RM ${(it.price*it.qty).toFixed(2)}</td><td><button class="remove-btn" onclick="cartRm(${i})">✕</button></td></tr>`;}).join('')}</tbody></table><div class="summary-box"><div class="s-row"><span>Subtotal</span><span>RM ${sub.toFixed(2)}</span></div><div class="s-row"><span>Shipping (at checkout)</span><span>—</span></div><div class="s-row total"><span>Est. Total</span><span>RM ${sub.toFixed(2)}+</span></div></div><div class="fg" style="margin-top:11px"><label style="font-weight:600;font-size:.85rem;display:block;margin-bottom:5px">📝 Remarks (optional)</label><textarea id="cartRemarks" rows="2" placeholder="e.g. Gift wrap, special instructions..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.86rem"></textarea></div><button class="checkout-btn" onclick="goCheckout()">Proceed to Checkout 继续结账</button>`;
+  c.innerHTML=`<table class="cart-table"><thead><tr><th></th><th>Product</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Total</th><th></th></tr></thead><tbody>${cart.map((it,i)=>{const th=it.img&&(it.img.startsWith('http')||it.img.startsWith('data:'))?`<img src="${it.img&&it.img!=='__IMG__'?it.img:''}" class="cart-thumb">`:`<div class="cart-thumb">${it.img||'📦'}</div>`;return`<tr><td>${th}</td><td><b>${lang==='en'?it.nameEn:it.nameCn}</b></td><td>${it.variation||'—'}</td><td><div class="qty-row"><button onclick="cartChQ(${i},-1)">−</button><span>${it.qty}</span><button onclick="cartChQ(${i},1)">+</button></div></td><td>RM ${it.price.toFixed(2)}</td><td>RM ${(it.price*it.qty).toFixed(2)}</td><td><button class="remove-btn" onclick="cartRm(${i})">✕</button></td></tr>`;}).join('')}</tbody></table><div class="summary-box"><div class="s-row"><span>Subtotal</span><span>RM ${sub.toFixed(2)}</span></div><div class="s-row"><span>Shipping (at checkout)</span><span>—</span></div><div class="s-row total"><span>Est. Total</span><span>RM ${sub.toFixed(2)}+</span></div></div><div class="fg" style="margin-top:11px"><label style="font-weight:600;font-size:.85rem;display:block;margin-bottom:5px">📝 Remarks (optional)</label><textarea id="cartRemarks" rows="2" placeholder="e.g. Gift wrap, special instructions..." style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.86rem"></textarea></div><button class="checkout-btn" onclick="goCheckout()">Proceed to Checkout 继续结账</button>`;
 }
 function cartChQ(i,d){cart[i].qty=Math.max(1,cart[i].qty+d);document.getElementById('cartBadge').textContent=cart.reduce((a,c)=>a+c.qty,0);renderCart();}
 function cartRm(i){cart.splice(i,1);document.getElementById('cartBadge').textContent=cart.reduce((a,c)=>a+c.qty,0);renderCart();}
@@ -1203,7 +1233,7 @@ function saveBranding(){
   const favUrl=v('bFavicon');if(favUrl)b.favicon=favUrl;
   applyBranding();persist();showMsg('brandingMsg','success','Saved!');
 }
-function renderSlideEditorList(){const el=document.getElementById('slideEditorList');el.innerHTML=(S.slides||[]).map((sl,i)=>`<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><b style="font-size:.88rem">Slide ${i+1}</b><button class="del-btn" onclick="removeSlide(${i})">Remove</button></div><div class="fg"><label>Background Image URL</label><input type="text" id="sl-img-${i}" value="${esc(sl.img)}" placeholder="https://..."/></div><div class="fg"><label>Or upload</label><div class="upload-area" style="padding:8px" onclick="document.getElementById('slf-${i}').click()"><span style="font-size:.8rem">📁 Upload</span><input type="file" id="slf-${i}" accept="image/*" onchange="uploadSlideImg(${i},event)" style="display:none"/></div>${sl.img?`<div class="img-upload-wrap"><img src="${sl.img}" style="max-height:70px;border-radius:5px;margin-top:5px"/><button class="img-remove-btn" onclick="removeSlideImg(${i})">✕</button></div>`:''}</div><div class="fr"><div class="fg"><label>Overlay Color</label><input type="color" id="sl-oc-${i}" value="${sl.overlayColor||'#000000'}" style="height:34px;padding:2px"/></div><div class="fg"><label>Overlay Opacity (0–1)</label><input type="number" id="sl-op-${i}" value="${sl.overlayOpacity!=null?sl.overlayOpacity:.35}" min="0" max="1" step=".05"/></div></div><div class="fr"><div class="fg"><label>Title (EN)</label><input type="text" id="sl-ten-${i}" value="${esc(sl.titleEn)}"/></div><div class="fg"><label>Title (中)</label><input type="text" id="sl-tcn-${i}" value="${esc(sl.titleCn)}"/></div></div><div class="fr"><div class="fg"><label>Subtitle (EN)</label><input type="text" id="sl-sen-${i}" value="${esc(sl.subEn)}"/></div><div class="fg"><label>Subtitle (中)</label><input type="text" id="sl-scn-${i}" value="${esc(sl.subCn)}"/></div></div></div>`).join('');}
+function renderSlideEditorList(){const el=document.getElementById('slideEditorList');el.innerHTML=(S.slides||[]).map((sl,i)=>`<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><b style="font-size:.88rem">Slide ${i+1}</b><button class="del-btn" onclick="removeSlide(${i})">Remove</button></div><div class="fg"><label>Background Image URL</label><input type="text" id="sl-img-${i}" value="${esc(sl.img)}" placeholder="https://..."/></div><div class="fg"><label>Or upload</label><div class="upload-area" style="padding:8px" onclick="document.getElementById('slf-${i}').click()"><span style="font-size:.8rem">📁 Upload</span><input type="file" id="slf-${i}" accept="image/*" onchange="uploadSlideImg(${i},event)" style="display:none"/></div>${sl.img?`<div class="img-upload-wrap"><img src="${sl.img&&sl.img!=='__IMG__'?sl.img:''}" style="max-height:70px;border-radius:5px;margin-top:5px"/><button class="img-remove-btn" onclick="removeSlideImg(${i})">✕</button></div>`:''}</div><div class="fr"><div class="fg"><label>Overlay Color</label><input type="color" id="sl-oc-${i}" value="${sl.overlayColor||'#000000'}" style="height:34px;padding:2px"/></div><div class="fg"><label>Overlay Opacity (0–1)</label><input type="number" id="sl-op-${i}" value="${sl.overlayOpacity!=null?sl.overlayOpacity:.35}" min="0" max="1" step=".05"/></div></div><div class="fr"><div class="fg"><label>Title (EN)</label><input type="text" id="sl-ten-${i}" value="${esc(sl.titleEn)}"/></div><div class="fg"><label>Title (中)</label><input type="text" id="sl-tcn-${i}" value="${esc(sl.titleCn)}"/></div></div><div class="fr"><div class="fg"><label>Subtitle (EN)</label><input type="text" id="sl-sen-${i}" value="${esc(sl.subEn)}"/></div><div class="fg"><label>Subtitle (中)</label><input type="text" id="sl-scn-${i}" value="${esc(sl.subCn)}"/></div></div></div>`).join('');}
 function addSlideEditor(){if((S.slides||[]).length>=5){alert('Max 5 slides.');return;}S.slides.push({img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'New Slide',titleCn:'新幻灯片',subEn:'',subCn:''});renderSlideEditorList();}
 function removeSlide(i){S.slides.splice(i,1);renderSlideEditorList();}
 function removeSlideImg(i){S.slides[i].img='';renderSlideEditorList();}
@@ -1364,14 +1394,14 @@ function openProdModal(pid){
   const mainImg=getProdMainImg(p);
   const imgWrap=document.getElementById('pdm-imgWrap');
   if(mainImg.startsWith('http')||mainImg.startsWith('data:')){
-    imgWrap.innerHTML=`<div class="prod-modal-img-wrap"><img src="${mainImg}" class="prod-modal-img" id="pdm-mainImg" alt=""/></div>`;
+    imgWrap.innerHTML=`<div class="prod-modal-img-wrap"><img src="${mainImg&&mainImg!=='__IMG__'?mainImg:''}" class="prod-modal-img" id="pdm-mainImg" alt=""/></div>`;
   }else{
     imgWrap.innerHTML=`<div class="prod-modal-img-emoji"><span>${mainImg}</span></div>`;
   }
   const thumbsEl=document.getElementById('pdm-thumbs');
   if(validImgs.length>1){
     thumbsEl.style.display='flex';
-    thumbsEl.innerHTML=validImgs.map((img,ii)=>`<img src="${img.url}" class="prod-modal-thumb${img.selected?' active':''}" onclick="pdmSwitchImg(${pid},${ii})" alt=""/>`).join('');
+    thumbsEl.innerHTML=validImgs.map((img,ii)=>`<img src="${img.url&&img.url!=='__IMG__'?img.url:''}" class="prod-modal-thumb${img.selected?' active':''}" onclick="pdmSwitchImg(${pid},${ii})" alt=""/>`).join('');
   }else{thumbsEl.style.display='none';thumbsEl.innerHTML='';}
   document.getElementById('pdm-name').textContent=getProdName(p);
   document.getElementById('pdm-price').textContent=dispPrice(p);
@@ -1890,7 +1920,7 @@ function renderOrdersFromList(orders){
       ${o.remarks?`<p><b>Remarks:</b> ${esc(o.remarks)}</p>`:''}
       <p><b>Sub:</b> RM ${o.subtotal.toFixed(2)} · <b>Ship:</b> RM ${o.shipping.toFixed(2)} · <b>Total:</b> RM ${o.total.toFixed(2)}</p>
       <p><b>Bank:</b> ${o.custBank||'—'} · <b>Ref:</b> ${o.ref}</p>${tb}
-      <p><b>Receipt:</b><br><img src="${o.receipt}" class="receipt-img" onclick="window.open(this.src)"/></p>
+      <p><b>Receipt:</b><br><img src="${o.receipt&&o.receipt!=='__IMG__'?o.receipt:''}" class="receipt-img" onclick="window.open(this.src)"/></p>
       <div style="margin-top:7px;display:flex;flex-wrap:wrap;gap:6px">
         <button class="edit-btn" onclick="adminViewOrder('${o.id}')">👁 View / Edit</button>
         ${o.status==='pending'?`<button class="save-btn" onclick="confirmO('${o.id}')" style="background:#2d6a4f">✅ Confirm</button>`:''}
