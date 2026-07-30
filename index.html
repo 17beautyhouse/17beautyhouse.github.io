@@ -21,32 +21,56 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 
-// Strip ALL base64 images from any object recursively
-function stripBase64(obj) {
-  if (typeof obj === 'string') {
-    return obj.startsWith('data:image') ? '__IMG__' : obj;
-  }
-  if (Array.isArray(obj)) return obj.map(stripBase64);
-  if (obj !== null && typeof obj === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      out[k] = v === undefined ? null : stripBase64(v);
-    }
-    return out;
-  }
-  return obj === undefined ? null : obj;
+// ── Compress image to max ~800KB base64 ──
+async function compressImage(base64, maxKB=800) {
+  return new Promise(res => {
+    if (!base64 || !base64.startsWith('data:image')) { res(base64); return; }
+    const img = new Image();
+    img.onload = () => {
+      let {width:w, height:h} = img;
+      const canvas = document.createElement('canvas');
+      // Scale down if very large
+      const MAX = 1200;
+      if (w > MAX || h > MAX) {
+        if (w > h) { h = Math.round(h*MAX/w); w = MAX; }
+        else { w = Math.round(w*MAX/h); h = MAX; }
+      }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      // Try decreasing quality until under maxKB
+      let q = 0.85;
+      let result = canvas.toDataURL('image/jpeg', q);
+      while (result.length > maxKB*1024*1.37 && q > 0.3) {
+        q -= 0.1;
+        result = canvas.toDataURL('image/jpeg', q);
+      }
+      res(result);
+    };
+    img.onerror = () => res(base64);
+    img.src = base64;
+  });
 }
 
-function cleanForFb(obj) {
-  if (Array.isArray(obj)) return obj.map(cleanForFb);
-  if (obj !== null && typeof obj === 'object') {
+// ── Strip base64 from object (replace with placeholder) ──
+function stripBase64(obj) {
+  if (typeof obj === 'string') return obj.startsWith('data:image') ? '__IMG__' : obj;
+  if (Array.isArray(obj)) return obj.map(stripBase64);
+  if (obj && typeof obj === 'object') {
     const out = {};
-    for (const [k, v] of Object.entries(obj)) {
-      out[k] = v === undefined ? null : cleanForFb(v);
-    }
+    for (const [k,v] of Object.entries(obj)) out[k] = v===undefined ? null : stripBase64(v);
     return out;
   }
-  return obj === undefined ? null : obj;
+  return obj===undefined ? null : obj;
+}
+
+function cleanFb(obj) {
+  if (Array.isArray(obj)) return obj.map(cleanFb);
+  if (obj && typeof obj === 'object') {
+    const out = {};
+    for (const [k,v] of Object.entries(obj)) out[k] = v===undefined ? null : cleanFb(v);
+    return out;
+  }
+  return obj===undefined ? null : obj;
 }
 
 async function fbGet(path){try{const s=await getDoc(doc(db,path));return s.exists()?s.data():null;}catch(e){console.error('fbGet',e);return null;}}
@@ -57,113 +81,164 @@ async function fbDel(path){try{await deleteDoc(doc(db,path));}catch(e){console.e
 
 window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddDoc=fbAddDoc;window._fbDel=fbDel;
 
-// ---- Image store: all base64 images go into imageStore/{key} ----
-async function saveImages(key, data) {
-  // Extract all base64 from data, save to imageStore
-  const images = {};
-  function extract(obj, path) {
-    if (typeof obj === 'string' && obj.startsWith('data:image')) {
-      images[path] = obj;
-    } else if (Array.isArray(obj)) {
-      obj.forEach((v,i) => extract(v, path+'_'+i));
-    } else if (obj && typeof obj === 'object') {
-      Object.entries(obj).forEach(([k,v]) => extract(v, path+'_'+k));
-    }
-  }
-  extract(data, key);
-  if (Object.keys(images).length > 0) {
-    // Split into chunks of 50 keys each (Firebase doc limit safe)
-    const entries = Object.entries(images);
-    for (let i = 0; i < entries.length; i += 50) {
-      const chunk = Object.fromEntries(entries.slice(i, i+50));
-      await fbSet('imageStore/'+key+'_chunk'+Math.floor(i/50), chunk);
-    }
-  }
+// ── Save product: text in products/{id}, images in productImages/{id} ──
+async function saveProduct(p) {
+  if (!p.id) return;
+  // Compress & save images separately
+  const imgs = await Promise.all((p.imgs||[]).map(i=>compressImage(i)));
+  const img  = await compressImage(p.img||'');
+  await fbSet('productImages/'+p.id, cleanFb({img, imgs}));
+  // Save text only in products collection
+  const {img:_i, imgs:_is, ...textOnly} = p;
+  await fbSet('products/'+p.id, cleanFb({...textOnly, img:'__IMG__', imgs:imgs.map(()=>'__IMG__')}));
 }
 
-async function loadImages(key) {
-  const imgDocs = await fbGetCol('imageStore');
-  const images = {};
-  imgDocs.filter(d=>d._id.startsWith(key)).forEach(d=>{
-    const {_id,...rest}=d;
-    Object.assign(images, rest);
-  });
-  return images;
+// ── Save slide: text in store/config, image in slides/slide_{index} ──
+async function saveSlide(slide, index) {
+  const img = await compressImage(slide.img||'');
+  await fbSet('slides/slide_'+index, {img});
+  return {...slide, img:'__IMG__'};
 }
 
-function restoreBase64(obj, images, path) {
-  if (typeof obj === 'string' && obj === '__IMG__') {
-    return images[path] || '';
-  }
-  if (Array.isArray(obj)) {
-    return obj.map((v,i) => restoreBase64(v, images, path+'_'+i));
-  }
-  if (obj !== null && typeof obj === 'object') {
-    const out = {};
-    Object.entries(obj).forEach(([k,v]) => {
-      out[k] = restoreBase64(v, images, path+'_'+k);
-    });
-    return out;
-  }
-  return obj;
+// ── Save order receipt separately ──
+async function saveOrderReceipt(orderId, receipt) {
+  if (!orderId || !receipt || !receipt.startsWith('data:image')) return;
+  const compressed = await compressImage(receipt, 600);
+  await fbSet('orderReceipts/'+orderId, {receipt: compressed});
 }
 
+// ── Load everything from Firebase ──
 async function loadFromFirebase(){
   document.getElementById('fb-loading').style.display='flex';
   try {
-    // Load images first
-    const images = await loadImages('store');
-
+    // Load config (no images)
     const cfg = await fbGet('store/config');
     if(cfg){
-      ['products','shipping','banks','slides','settings','branding','footer','store','faq','tc','discounts','discountEnabled','msgTemplates','productLang','popup'].forEach(k=>{
-        if(cfg[k]!=null) window._S[k] = restoreBase64(cfg[k], images, 'store_'+k);
+      ['shipping','banks','settings','branding','footer','store','faq','tc',
+       'discounts','discountEnabled','msgTemplates','productLang','popup'].forEach(k=>{
+        if(cfg[k]!=null) window._S[k]=cfg[k];
       });
       if(cfg.orderCounter!=null) window._orderCounter=cfg.orderCounter;
     }
-    const [orders,customers,messages]=await Promise.all([fbGetCol('orders'),fbGetCol('customers'),fbGetCol('messages')]);
-    window._S.orders=orders.map(o=>{const{_id,...r}=o;r._fbId=_id;return r;});
-    window._S.customers=customers.map(c=>{const{_id,...r}=c;r._fbId=_id;return r;});
-    window._S.contactMessages=messages.map(m=>{const{_id,...r}=m;r._fbId=_id;return r;});
+
+    // Load products from products/ collection + images from productImages/
+    const [prodDocs, prodImgDocs, slideDocs, orderDocs, custDocs, msgDocs, receiptDocs] =
+      await Promise.all([
+        fbGetCol('products'),
+        fbGetCol('productImages'),
+        fbGetCol('slides'),
+        fbGetCol('orders'),
+        fbGetCol('customers'),
+        fbGetCol('messages'),
+        fbGetCol('orderReceipts'),
+      ]);
+
+    // Merge product images
+    const imgMap = {};
+    prodImgDocs.forEach(d=>{ imgMap[d._id]={img:d.img||'',imgs:d.imgs||[]}; });
+    window._S.products = prodDocs.map(p=>{
+      const {_id,...rest}=p;
+      const imgData = imgMap[_id]||{};
+      return {...rest, img:imgData.img||'', imgs:imgData.imgs||[]};
+    });
+
+    // Merge slide images
+    const slideImgMap = {};
+    slideDocs.forEach(d=>{ slideImgMap[d._id]=d.img||''; });
+    if(cfg && cfg.slides) {
+      window._S.slides = cfg.slides.map((s,i)=>({...s, img:slideImgMap['slide_'+i]||s.img||''}));
+    }
+
+    // Merge order receipts
+    const receiptMap = {};
+    receiptDocs.forEach(d=>{ receiptMap[d._id]=d.receipt||''; });
+    window._S.orders = orderDocs.map(o=>{
+      const{_id,...r}=o; r._fbId=_id;
+      if(receiptMap[_id]) r.receipt=receiptMap[_id];
+      return r;
+    });
+
+    window._S.customers=custDocs.map(c=>{const{_id,...r}=c;r._fbId=_id;return r;});
+    window._S.contactMessages=msgDocs.map(m=>{const{_id,...r}=m;r._fbId=_id;return r;});
+
   } catch(e){console.error('loadFromFirebase error',e);}
   document.getElementById('fb-loading').style.display='none';
   window._appInit();
 }
 
-window._fbPersist=async function(){
+// ── Persist everything ──
+window._fbPersist = async function(){
   try {
-    const dataToSave = {
-      products:window._S.products, shipping:window._S.shipping,
-      banks:window._S.banks, slides:window._S.slides,
-      settings:window._S.settings, branding:window._S.branding,
+    // Save each product separately
+    await Promise.all((window._S.products||[]).map(p=>saveProduct(p)));
+
+    // Save each slide separately
+    const slidesStripped = await Promise.all((window._S.slides||[]).map((s,i)=>saveSlide(s,i)));
+
+    // Config: no images, no products (stored separately)
+    const cfg = cleanFb({
+      shipping:window._S.shipping, banks:window._S.banks,
+      slides:slidesStripped,
+      settings:window._S.settings, branding:stripBase64(window._S.branding),
       footer:window._S.footer, store:window._S.store,
       faq:window._S.faq, tc:window._S.tc,
       discounts:window._S.discounts, discountEnabled:window._S.discountEnabled,
       msgTemplates:window._S.msgTemplates, productLang:window._S.productLang,
-      popup:window._S.popup, orderCounter:window._orderCounter
-    };
-
-    // Save images separately, strip from config
-    await saveImages('store', dataToSave);
-    const cfg = stripBase64(dataToSave);
-
+      popup:stripBase64(window._S.popup), orderCounter:window._orderCounter
+    });
     await fbSet('store/config', cfg);
 
+    // Save orders (receipt separately)
     const saves=[];
-    for(const o of window._S.orders||[]){const{_fbId,...data}=o;const cd=stripBase64(data);if(_fbId)saves.push(fbSet('orders/'+_fbId,cd));else{const id=await fbAddDoc('orders',cd);if(id)o._fbId=id;}}
-    for(const c of window._S.customers||[]){const{_fbId,...data}=c;const cd=stripBase64(data);if(_fbId)saves.push(fbSet('customers/'+_fbId,cd));else{const id=await fbAddDoc('customers',cd);if(id)c._fbId=id;}}
-    for(const m of window._S.contactMessages||[]){const{_fbId,...data}=m;const cd=stripBase64(data);if(_fbId)saves.push(fbSet('messages/'+_fbId,cd));else{const id=await fbAddDoc('messages',cd);if(id)m._fbId=id;}}
+    for(const o of window._S.orders||[]){
+      const{_fbId,...data}=o;
+      const receipt=data.receipt||'';
+      const {receipt:_r,...orderText}=data;
+      const cd=cleanFb({...orderText, receipt:'__IMG__'});
+      const fbId = _fbId || await fbAddDoc('orders',cd);
+      if(!_fbId && fbId) o._fbId=fbId;
+      if(_fbId) saves.push(fbSet('orders/'+_fbId, cd));
+      // Save receipt separately
+      if(receipt && receipt.startsWith('data:image') && (_fbId||fbId)) {
+        saves.push(saveOrderReceipt(_fbId||fbId, receipt));
+      }
+    }
+
+    for(const c of window._S.customers||[]){
+      const{_fbId,...data}=c;const cd=cleanFb(data);
+      if(_fbId)saves.push(fbSet('customers/'+_fbId,cd));
+      else{const id=await fbAddDoc('customers',cd);if(id)c._fbId=id;}
+    }
+    for(const m of window._S.contactMessages||[]){
+      const{_fbId,...data}=m;const cd=cleanFb(data);
+      if(_fbId)saves.push(fbSet('messages/'+_fbId,cd));
+      else{const id=await fbAddDoc('messages',cd);if(id)m._fbId=id;}
+    }
     await Promise.all(saves);
     console.log('✅ Firebase sync done');
   } catch(e){console.error('❌ Firebase sync error',e);}
 };
 
-window._saveOrderFb=async function(o){const{_fbId,...d}=o;const cd=stripBase64(d);if(_fbId)await fbSet('orders/'+_fbId,cd);else{const id=await fbAddDoc('orders',cd);if(id)o._fbId=id;}};
-window._saveCustFb=async function(c){const{_fbId,...d}=c;const cd=stripBase64(d);if(_fbId)await fbSet('customers/'+_fbId,cd);else{const id=await fbAddDoc('customers',cd);if(id)c._fbId=id;}};
-window._saveMsgFb=async function(m){const{_fbId,...d}=m;const cd=stripBase64(d);if(_fbId)await fbSet('messages/'+_fbId,cd);else{const id=await fbAddDoc('messages',cd);if(id)m._fbId=id;}};
-window._delOrderFb=async function(id){if(id)await fbDel('orders/'+id);};
+// ── Individual savers ──
+window._saveOrderFb = async function(o){
+  const{_fbId,...data}=o;
+  const receipt=data.receipt||'';
+  const{receipt:_r,...orderText}=data;
+  const cd=cleanFb({...orderText,receipt:'__IMG__'});
+  if(_fbId){
+    await fbSet('orders/'+_fbId,cd);
+    if(receipt&&receipt.startsWith('data:image')) await saveOrderReceipt(_fbId,receipt);
+  } else {
+    const id=await fbAddDoc('orders',cd);
+    if(id){o._fbId=id;if(receipt&&receipt.startsWith('data:image'))await saveOrderReceipt(id,receipt);}
+  }
+};
+window._saveCustFb=async function(c){const{_fbId,...d}=c;const cd=cleanFb(d);if(_fbId)await fbSet('customers/'+_fbId,cd);else{const id=await fbAddDoc('customers',cd);if(id)c._fbId=id;}};
+window._saveMsgFb=async function(m){const{_fbId,...d}=m;const cd=cleanFb(d);if(_fbId)await fbSet('messages/'+_fbId,cd);else{const id=await fbAddDoc('messages',cd);if(id)m._fbId=id;}};
+window._delOrderFb=async function(id){if(id){await fbDel('orders/'+id);await fbDel('orderReceipts/'+id);}};
 window._delCustFb=async function(id){if(id)await fbDel('customers/'+id);};
 window._delMsgFb=async function(id){if(id)await fbDel('messages/'+id);};
+window._saveProductFb=async function(p){await saveProduct(p);};
 
 window.addEventListener('load',()=>{if(window._appReady)loadFromFirebase();else window._fbLoadFn=loadFromFirebase;});
 </script>
