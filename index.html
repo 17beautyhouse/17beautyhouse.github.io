@@ -173,7 +173,8 @@ async function loadFromFirebase(){
     prodImgDocs.forEach(d=>{ imgMap[d._id]={img:d.img||'',imgs:d.imgs||[]}; });
     window._S.products = prodDocs.map(p=>{
       const {_id,...rest}=p;
-      const imgData = imgMap[_id]||{};
+      // Try matching by Firestore doc _id, then by product id field
+      const imgData = imgMap[_id] || imgMap[String(rest.id)] || imgMap[rest.id] || {};
       // images[] array with {url, selected} objects
       const images = Array.isArray(imgData.images) ? imgData.images : [];
       const imgs = Array.isArray(imgData.imgs) ? imgData.imgs : [];
@@ -185,9 +186,10 @@ async function loadFromFirebase(){
         const firstImg = images.find(i=>i&&i.url&&i.url!=='__IMG__'&&i.url.startsWith('data:'));
         if(firstImg) img = firstImg.url;
       } else if(imgs.length > 0) {
-        const firstI = imgs.find(i=>i&&i!=='__IMG__'&&typeof i==='string');
+        const firstI = imgs.find(i=>i&&i!=='__IMG__'&&typeof i==='string'&&i.startsWith('data:'));
         if(firstI) img = firstI;
       }
+      console.log('product', rest.id, '-> imgData found:', !!Object.keys(imgData).length, 'img len:', img.length);
       return {...rest, img, imgs, images};
     });
 
