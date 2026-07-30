@@ -171,35 +171,25 @@ async function loadFromFirebase(){
     // Merge product images
     const imgMap = {};
     prodImgDocs.forEach(d=>{ imgMap[d._id]={img:d.img||'',imgs:d.imgs||[]}; });
+    // Build imgMap from productImages collection
+    const finalImgMap = {};
+    prodImgDocs.forEach(d=>{ finalImgMap[d._id] = d; });
+
     window._S.products = prodDocs.map(p=>{
       const {_id,...rest}=p;
-      // Try matching by Firestore doc _id, then by product id field
-      const imgData = imgMap[_id] || imgMap[String(rest.id)] || imgMap[rest.id] || {};
-      // images[] array with {url, selected} objects
+      // Match by _id or product id
+      const imgData = finalImgMap[_id] || finalImgMap[String(rest.id)] || finalImgMap[rest.id] || {};
       const images = Array.isArray(imgData.images) ? imgData.images : [];
       const imgs = Array.isArray(imgData.imgs) ? imgData.imgs : [];
-      // Main display image - try all possible sources
+      // Get main display image - same logic as manual patch that worked
       let img = '';
-      // 1. Try imgData.img directly
-      if(imgData.img && imgData.img !== '__IMG__' && imgData.img.length > 100) {
-        img = imgData.img;
+      for(const im of images){
+        if(im && im.url && im.url.length > 100){ img = im.url; break; }
       }
-      // 2. Try images[].url (any non-empty url)
-      if(!img && images.length > 0) {
-        for(const im of images) {
-          if(im && im.url && im.url !== '__IMG__' && im.url.length > 100) {
-            img = im.url; break;
-          }
-        }
+      if(!img) for(const im of imgs){
+        if(im && typeof im==='string' && im.length>100){ img=im; break; }
       }
-      // 3. Try imgs[] array
-      if(!img && imgs.length > 0) {
-        for(const im of imgs) {
-          if(im && im !== '__IMG__' && typeof im === 'string' && im.length > 100) {
-            img = im; break;
-          }
-        }
-      }
+      if(!img && imgData.img && imgData.img.length>100) img=imgData.img;
       return {...rest, img, imgs, images};
     });
 
