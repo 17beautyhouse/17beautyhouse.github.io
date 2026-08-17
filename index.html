@@ -1614,7 +1614,7 @@ function adminTab(t,btn){document.querySelectorAll('.admin-section').forEach(x=>
     const sft=document.getElementById('showFaqToggle');if(sft)sft.checked=S.footer.showFaq!==false;
     const stt=document.getElementById('showTcToggle');if(stt)stt.checked=S.footer.showTc!==false;
   }if(t==='branding'){renderColorSwatches();renderSlideEditorList();}if(t==='discounts'){renderDiscountList();document.getElementById('discToggle').checked=S.discountEnabled;}if(t==='popup')loadPopupAdminInputs();}
-function addVarRow(n='',p='',w='',s=''){const tb=document.getElementById('variantRows'),tr=document.createElement('tr');tr.innerHTML=`<td><input type="text" value="${n}" placeholder="S/Red..."/></td><td><input type="number" value="${p}" step="0.01" min="0" placeholder="29.90"/></td><td><input type="number" value="${w}" min="0" placeholder="200"/></td><td><input type="number" value="${s}" step="0.5" min="0" placeholder="blank=auto"/></td><td><button class="del-btn" onclick="this.closest('tr').remove()">✕</button></td>`;tb.appendChild(tr);}
+function addVarRow(n='',p='',w='',s=''){const tb=document.getElementById('variantRows'),tr=document.createElement('tr');tr.innerHTML=`<td><input type="text" value="${n}" placeholder="S/Red..."/></td><td><input type="number" value="${p}" step="0.01" min="0" placeholder="29.90"/></td><td><input type="number" value="${w}" min="0" placeholder="200"/></td><td><input type="number" value="${s}" step="0.5" min="0" placeholder="blank=auto"/></td><td><input type="number" id="epvst-${pid}-${vi}" min="-1" value="-1" style="width:60px" placeholder="-1"/></td><td><button class="del-btn" onclick="this.closest('tr').remove()">✕</button></td>`;tb.appendChild(tr);}
 function getVarRows(){return Array.from(document.querySelectorAll('#variantRows tr')).map(tr=>{const ins=tr.querySelectorAll('input');return{name:ins[0].value.trim(),price:parseFloat(ins[1].value)||0,weight:parseInt(ins[2].value)||0,shipOverride:ins[3].value!==''?parseFloat(ins[3].value):null};}).filter(v=>v.name);}
 function addProduct(){
   const en=document.getElementById('pNameEn').value.trim(),cn=document.getElementById('pNameCn').value.trim();
@@ -1681,8 +1681,8 @@ function renderProductList(){
           <p class="hint" style="margin-top:4px">Click ✕ on image to remove. First image = main display. Click an image to set as primary.</p>
         </div>
         <div style="margin-top:9px"><b style="font-size:.82rem">Variants</b>
-          <table class="var-table"><thead><tr><th>Name</th><th>Price(RM)</th><th>Weight(g)</th><th>Ship Override</th><th></th></tr></thead>
-          <tbody id="ep-vars-${p.id}">${(p.variants||[]).map((v,vi)=>`<tr><td><input type="text" value="${esc(v.name)}" id="epvn-${p.id}-${vi}"/></td><td><input type="number" value="${v.price}" step="0.01" min="0" id="epvp-${p.id}-${vi}"/></td><td><input type="number" value="${v.weight}" min="0" id="epvw-${p.id}-${vi}"/></td><td><input type="number" value="${v.shipOverride!=null?v.shipOverride:''}" step="0.5" min="0" id="epvs-${p.id}-${vi}" placeholder="blank=auto"/></td><td><button class="del-btn" onclick="this.closest('tr').remove()">✕</button></td></tr>`).join('')}</tbody></table>
+          <table class="var-table"><thead><tr><th>Name</th><th>Price(RM)</th><th>Weight(g)</th><th>Ship Override</th><th>Stock(-1=∞)</th><th></th></tr></thead>
+          <tbody id="ep-vars-${p.id}">${(p.variants||[]).map((v,vi)=>`<tr><td><input type="text" value="${esc(v.name)}" id="epvn-${p.id}-${vi}"/></td><td><input type="number" value="${v.price}" step="0.01" min="0" id="epvp-${p.id}-${vi}"/></td><td><input type="number" value="${v.weight}" min="0" id="epvw-${p.id}-${vi}"/></td><td><input type="number" value="${v.shipOverride!=null?v.shipOverride:''}" step="0.5" min="0" id="epvs-${p.id}-${vi}" placeholder="blank=auto"/></td><td><input type="number" value="${v.stock!=null?v.stock:-1}" min="-1" id="epvst-${p.id}-${vi}" style="width:60px" placeholder="-1"/></td><td><button class="del-btn" onclick="this.closest('tr').remove()">✕</button></td></tr>`).join('')}</tbody></table>
           <button class="add-var-btn" onclick="addEditVarRow(${p.id})">+ Add Variant</button>
         </div>
         <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
@@ -1780,7 +1780,9 @@ function saveProductEdit(id){
     const pr=parseFloat(document.getElementById(`epvp-${id}-${vi}`)?.value)||0;
     const w=parseInt(document.getElementById(`epvw-${id}-${vi}`)?.value)||0;
     const so=document.getElementById(`epvs-${id}-${vi}`)?.value;
-    return n?{name:n,price:pr,weight:w,shipOverride:so!==''&&so!=null?parseFloat(so):null}:null;
+    const stEl=document.getElementById(`epvst-${id}-${vi}`);
+    const st=stEl?parseInt(stEl.value):-1;
+    return n?{name:n,price:pr,weight:w,shipOverride:so!==''&&so!=null?parseFloat(so):null,stock:isNaN(st)?-1:st}:null;
   }).filter(Boolean);
   if(newVars.length)p.variants=newVars;
   persist();renderProducts();renderProductList();
