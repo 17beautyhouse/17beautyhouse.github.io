@@ -321,6 +321,14 @@ window._delOrderFb=async function(id){if(id){await fbDel('orders/'+id);await fbD
 window._delCustFb=async function(id){if(id)await fbDel('customers/'+id);};
 window._delMsgFb=async function(id){if(id)await fbDel('messages/'+id);};
 window._saveProductFb=async function(p){await saveProduct(p);};
+window._saveBankQRFb=async function(){
+  const banks=window._S.banks||[];
+  await Promise.all(banks.map(b=>{
+    if(!b.id)return Promise.resolve();
+    const qr=b.qr&&b.qr.startsWith('data:')?b.qr:'';
+    return fbSet('bankQR/'+b.id,{qr});
+  }));
+};
 
 window.addEventListener('load',()=>{if(window._appReady)loadFromFirebase();else window._fbLoadFn=loadFromFirebase;});
 </script>
