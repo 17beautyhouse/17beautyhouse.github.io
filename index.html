@@ -157,6 +157,17 @@ async function loadFromFirebase(){
     }
 
     // Load products from products/ collection + images from productImages/
+    // Load bank QR codes
+    const bankQRDocs = await fbGetCol('bankQR');
+    const bankQRMap = {};
+    bankQRDocs.forEach(d=>{ bankQRMap[d._id]=d.qr||''; });
+    if(window._S.banks){
+      window._S.banks = window._S.banks.map(b=>{
+        if(b.id && bankQRMap[b.id]) b.qr = bankQRMap[b.id];
+        return b;
+      });
+    }
+
     const [prodDocs, prodImgDocs, slideDocs, orderDocs, custDocs, msgDocs, receiptDocs] =
       await Promise.all([
         fbGetCol('products'),
@@ -237,7 +248,7 @@ window._fbPersist = async function(){
   try {
     // Save config FIRST (settings, toggles, etc.)
     const cfgQuick = cleanFb({
-      shipping:window._S.shipping, banks:window._S.banks,
+      shipping:window._S.shipping, banks:window._S.banks.map(b=>({...b,qr:b.qr&&b.qr.startsWith('data:')?'__QR__':b.qr})),
       slides:window._S.slides.map(s=>({...s,img:'__IMG__'})),
       settings:window._S.settings, branding:stripBase64(window._S.branding),
       footer:window._S.footer, store:window._S.store,
@@ -247,6 +258,9 @@ window._fbPersist = async function(){
       popup:stripBase64(window._S.popup), orderCounter:window._orderCounter
     });
     await fbSet('store/config', cfgQuick);
+
+    // Save bank QR codes separately
+    if(window._saveBankQRFb) await window._saveBankQRFb();
 
     // Save each product separately
     await Promise.all((window._S.products||[]).map(p=>saveProduct(p)));
@@ -1260,8 +1274,8 @@ function saveBranding(){
   applyBranding();persist();showMsg('brandingMsg','success','Saved!');
 }
 function renderSlideEditorList(){const el=document.getElementById('slideEditorList');el.innerHTML=(S.slides||[]).map((sl,i)=>`<div style="border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:8px"><b style="font-size:.88rem">Slide ${i+1}</b><button class="del-btn" onclick="removeSlide(${i})">Remove</button></div><div class="fg"><label>Background Image URL</label><input type="text" id="sl-img-${i}" value="${esc(sl.img)}" placeholder="https://..."/></div><div class="fg"><label>Or upload</label><div class="upload-area" style="padding:8px" onclick="document.getElementById('slf-${i}').click()"><span style="font-size:.8rem">📁 Upload</span><input type="file" id="slf-${i}" accept="image/*" onchange="uploadSlideImg(${i},event)" style="display:none"/></div>${sl.img?`<div class="img-upload-wrap"><img src="${sl.img}" style="max-height:70px;border-radius:5px;margin-top:5px"/><button class="img-remove-btn" onclick="removeSlideImg(${i})">✕</button></div>`:''}</div><div class="fr"><div class="fg"><label>Overlay Color</label><input type="color" id="sl-oc-${i}" value="${sl.overlayColor||'#000000'}" style="height:34px;padding:2px"/></div><div class="fg"><label>Overlay Opacity (0–1)</label><input type="number" id="sl-op-${i}" value="${sl.overlayOpacity!=null?sl.overlayOpacity:.35}" min="0" max="1" step=".05"/></div></div><div class="fr"><div class="fg"><label>Title (EN)</label><input type="text" id="sl-ten-${i}" value="${esc(sl.titleEn)}"/></div><div class="fg"><label>Title (中)</label><input type="text" id="sl-tcn-${i}" value="${esc(sl.titleCn)}"/></div></div><div class="fr"><div class="fg"><label>Subtitle (EN)</label><input type="text" id="sl-sen-${i}" value="${esc(sl.subEn)}"/></div><div class="fg"><label>Subtitle (中)</label><input type="text" id="sl-scn-${i}" value="${esc(sl.subCn)}"/></div></div></div>`).join('');}
-function addSlideEditor(){if((S.slides||[]).length>=5){alert('Max 5 slides.');return;}S.slides.push({img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'New Slide',titleCn:'新幻灯片',subEn:'',subCn:''});renderSlideEditorList();}
-function removeSlide(i){S.slides.splice(i,1);renderSlideEditorList();}
+function addSlideEditor(){if((S.slides||[]).length>=5){alert('Max 5 slides.');return;}S.slides.push({img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'New Slide',titleCn:'新幻灯片',subEn:'',subCn:''});renderSlideEditorList();persist();}
+function removeSlide(i){S.slides.splice(i,1);renderSlideEditorList();persist();}
 function removeSlideImg(i){S.slides[i].img='';renderSlideEditorList();}
 function uploadSlideImg(i,e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{S.slides[i].img=ev.target.result;renderSlideEditorList();};r.readAsDataURL(f);e.target.value='';}
 function saveSlides(){(S.slides||[]).forEach((sl,i)=>{const img=document.getElementById('sl-img-'+i)?.value;if(img&&img!==sl.img)sl.img=img;sl.overlayColor=document.getElementById('sl-oc-'+i)?.value||'#000000';sl.overlayOpacity=parseFloat(document.getElementById('sl-op-'+i)?.value)||.35;sl.titleEn=document.getElementById('sl-ten-'+i)?.value||'';sl.titleCn=document.getElementById('sl-tcn-'+i)?.value||'';sl.subEn=document.getElementById('sl-sen-'+i)?.value||'';sl.subCn=document.getElementById('sl-scn-'+i)?.value||'';});persist();renderSlideshow();showMsg('slidesMsg','success','Slides saved!');}
@@ -1297,7 +1311,7 @@ function renderFaqAdmin(){
   </div>`).join('');}
 function addFaqRow(){S.faq.push({q:'',a:'',active:true});renderFaqAdmin();}
 function toggleFaqActive(i,v){if(S.faq[i])S.faq[i].active=v;persist();renderFaqAdmin();}
-function rmFaq(i){S.faq.splice(i,1);renderFaqAdmin();}
+function rmFaq(i){S.faq.splice(i,1);renderFaqAdmin();persist();}
 function saveFooterToggles(){
   S.footer.showFaq=document.getElementById('showFaqToggle')?.checked===true;
   S.footer.showTc=document.getElementById('showTcToggle')?.checked===true;
@@ -1657,7 +1671,9 @@ function addProduct(){
   renderProducts();renderProductList();
   ['pNameEn','pNameCn','pDescEn','pDescCn','pPrice','pImg'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('variantRows').innerHTML='';
-  persist();showMsg('productMsg','success','Product added!');
+  // Save product images to Firebase
+  if(window._saveProductFb)window._saveProductFb(p).then(()=>persist());else persist();
+  showMsg('productMsg','success','Product added!');
 }
 function renderProductList(){
   const el=document.getElementById('productList');
@@ -1810,7 +1826,8 @@ function saveProductEdit(id){
     return n?{name:n,price:pr,weight:w,shipOverride:so!==''&&so!=null?parseFloat(so):null,stock:isNaN(st)?-1:st}:null;
   }).filter(Boolean);
   if(newVars.length)p.variants=newVars;
-  persist();renderProducts();renderProductList();
+  if(window._saveProductFb)window._saveProductFb(p).then(()=>persist());else persist();
+  renderProducts();renderProductList();
   const panel=document.getElementById('edit-'+id);if(panel)panel.classList.add('open');
   showMsg('ep-msg-'+id,'success','Saved!');
 }
@@ -1822,10 +1839,15 @@ function rmWT(r,i){const s=S.shipping[r];if(s&&s.tiers.length>1){s.tiers.splice(
 function addAT(r){const s=S.shipping[r]||(S.shipping[r]={});if(!s.amtTiers)s.amtTiers=[];s.amtTiers.push({maxAmt:99999,fee:0});renderShippingForm();}
 function rmAT(r,i){const s=S.shipping[r];if(s&&s.amtTiers&&s.amtTiers.length>1){s.amtTiers.splice(i,1);renderShippingForm();}}
 function saveShipping(){REGIONS.forEach(r=>{const k=r.replace(/[^a-z]/gi,'_');const s=S.shipping[r]||(S.shipping[r]={});const wIn=document.querySelectorAll(`[data-wt^="${r}|"]`);const wm={};wIn.forEach(i=>{const[,idx,f]=i.dataset.wt.split('|');if(!wm[idx])wm[idx]={};wm[idx][f]=parseFloat(i.value)||0;if(f==='max'&&!i.value)wm[idx][f]=99999;});s.tiers=Object.keys(wm).sort((a,b)=>a-b).map(k=>({maxWeight:wm[k].max,fee:wm[k].fee}));const aIn=document.querySelectorAll(`[data-at^="${r}|"]`);const am={};aIn.forEach(i=>{const[,idx,f]=i.dataset.at.split('|');if(!am[idx])am[idx]={};am[idx][f]=parseFloat(i.value)||0;if(f==='max'&&!i.value)am[idx][f]=99999;});s.amtTiers=Object.keys(am).sort((a,b)=>a-b).map(k=>({maxAmt:am[k].max,fee:am[k].fee}));const fa=document.getElementById('fa-'+k);s.freeAbove=fa&&fa.value?parseFloat(fa.value):null;});persist();showMsg('shippingMsg','success','Saved!');}
-function renderBankAdmin(){const el=document.getElementById('bankAdminList');el.innerHTML=(S.banks||[]).map((b,i)=>`<div class="bank-admin-item"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label class="toggle-sw"><input type="checkbox" ${b.active?'checked':''} onchange="toggleBank(${i},this.checked)"><span class="slider"></span></label><span style="font-weight:600">${esc(b.name||'Unnamed')}</span><span style="font-size:.74rem;color:${b.active?'#0f5132':'var(--muted)'}">${b.active?'● Visible':'○ Hidden'}</span></div><div class="fr"><div class="fg"><label>Bank Name</label><input type="text" value="${esc(b.name)}" onchange="updBank(${i},'name',this.value)"/></div><div class="fg"><label>Account Name</label><input type="text" value="${esc(b.accName)}" onchange="updBank(${i},'accName',this.value)"/></div></div><div class="fr"><div class="fg"><label>Account No.</label><input type="text" value="${esc(b.accNo)}" onchange="updBank(${i},'accNo',this.value)"/></div><div class="fg"><label>Extra Info</label><input type="text" value="${esc(b.extra)}" onchange="updBank(${i},'extra',this.value)"/></div></div><div class="fg"><label>QR Code</label><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><div><div class="upload-area" style="padding:7px;display:inline-block" onclick="document.getElementById('qrf-${i}').click()"><span style="font-size:.78rem">📁 Upload QR</span><input type="file" id="qrf-${i}" accept="image/*" onchange="uploadQR(${i},event)" style="display:none"/></div><input type="text" placeholder="or paste URL" value="${b.qr&&!b.qr.startsWith('data:')?esc(b.qr):''}" onchange="updBank(${i},'qr',this.value)" style="margin-top:4px;width:180px"/></div>${b.qr?`<div style="position:relative"><img src="${b.qr}" class="bank-qr-admin" alt="QR"/><button class="img-remove-btn" onclick="updBank(${i},'qr','');renderBankAdmin()">✕</button></div>`:''}</div></div><button class="del-btn" style="margin-top:6px" onclick="delBank(${i})">Delete</button></div>`).join('');}
+function renderBankAdmin(){const el=document.getElementById('bankAdminList');el.innerHTML=(S.banks||[]).map((b,i)=>`<div class="bank-admin-item"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label class="toggle-sw"><input type="checkbox" ${b.active?'checked':''} onchange="toggleBank(${i},this.checked)"><span class="slider"></span></label><span style="font-weight:600">${esc(b.name||'Unnamed')}</span><span style="font-size:.74rem;color:${b.active?'#0f5132':'var(--muted)'}">${b.active?'● Visible':'○ Hidden'}</span></div><div class="fr"><div class="fg"><label>Bank Name</label><input type="text" value="${esc(b.name)}" onchange="updBank(${i},'name',this.value)"/></div><div class="fg"><label>Account Name</label><input type="text" value="${esc(b.accName)}" onchange="updBank(${i},'accName',this.value)"/></div></div><div class="fr"><div class="fg"><label>Account No.</label><input type="text" value="${esc(b.accNo)}" onchange="updBank(${i},'accNo',this.value)"/></div><div class="fg"><label>Extra Info</label><input type="text" value="${esc(b.extra)}" onchange="updBank(${i},'extra',this.value)"/></div></div><div class="fg"><label>QR Code</label><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><div><div class="upload-area" style="padding:7px;display:inline-block" onclick="document.getElementById('qrf-${i}').click()"><span style="font-size:.78rem">📁 Upload QR</span><input type="file" id="qrf-${i}" accept="image/*" onchange="uploadQR(${i},event)" style="display:none"/></div><input type="text" placeholder="or paste URL" value="${b.qr&&!b.qr.startsWith('data:')?esc(b.qr):''}" onchange="updBank(${i},'qr',this.value)" style="margin-top:4px;width:180px"/></div>${b.qr?`<div style="position:relative"><img src="${b.qr}" class="bank-qr-admin" alt="QR"/><button class="img-remove-btn" onclick="updBank(${i},'qr','');renderBankAdmin()">✕</button></div>`:''}</div></div><button class="del-btn" <div style="display:flex;gap:8px;margin-top:8px"><button class="save-btn" onclick="saveBank(${i})">💾 Save</button><button class="del-btn" onclick="delBank(${i})">Delete</button></div><div class="msg" id="bankMsg-${i}" style="margin-top:4px"></div>`).join('');}
 function toggleBank(i,v){S.banks[i].active=v;persist();renderBankAdmin();}
-function updBank(i,k,v){S.banks[i][k]=v;persist();}
-function uploadQR(i,e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{S.banks[i].qr=ev.target.result;persist();renderBankAdmin();};r.readAsDataURL(f);}
+function saveBank(i){
+  if(window._saveBankQRFb)window._saveBankQRFb().then(()=>persist());
+  else persist();
+  showMsg('bankMsg-'+i,'success','Saved! ✅');
+}
+function updBank(i,k,v){S.banks[i][k]=v;}
+function uploadQR(i,e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=ev=>{S.banks[i].qr=ev.target.result;if(window._saveBankQRFb)window._saveBankQRFb().then(()=>persist());else persist();renderBankAdmin();toast('QR saved ✅');};r.readAsDataURL(f);}
 function addBankEntry(){S.banks.push({id:'b'+Date.now(),name:'New Bank',accName:'',accNo:'',extra:'',qr:'',active:false});persist();renderBankAdmin();}
 function delBank(i){if(confirm('Delete?')){S.banks.splice(i,1);persist();renderBankAdmin();}}
 let _statusFilter='all';
