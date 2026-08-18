@@ -1260,7 +1260,9 @@ function tFaq(id){document.getElementById(id).classList.toggle('open');}
 function submitContact(){const n=document.getElementById('ctN').value.trim(),m=document.getElementById('ctM').value.trim();if(!n||!m){alert('Fill name & message.');return;}if(!S.contactMessages)S.contactMessages=[];const _nm={id:'MSG'+Date.now(),date:new Date().toLocaleString(),name:n,phone:document.getElementById('ctP').value.trim(),email:document.getElementById('ctE').value.trim(),orderRef:document.getElementById('ctO').value.trim(),message:m,read:false,replies:[],accountId:currentUser?.id||''};S.contactMessages.unshift(_nm);if(window._saveMsgFb)window._saveMsgFb(_nm).then(()=>persist());else persist();document.getElementById('ctOK').style.display='block';['ctN','ctP','ctE','ctO','ctM'].forEach(id=>document.getElementById(id).value='');setTimeout(()=>document.getElementById('ctOK').style.display='none',4000);}
 function saveFooterContact(){S.footer.company=document.getElementById('fCompany').value;S.footer.address=document.getElementById('fAddress').value;S.footer.phone=document.getElementById('fPhone2').value;S.footer.email=document.getElementById('fEmail2').value;S.footer.waNum=document.getElementById('fWaNum').value;S.footer.waMsg=document.getElementById('fWaMsg').value;S.footer.contactEnabled=document.getElementById('contactEnabled')?.checked!==false;renderFooter();persist();showMsg('contactMsg','success','Saved!');}
 function saveStorePickup(){S.store={addr:document.getElementById('storeAddr').value,hours:document.getElementById('storeHours').value,phone:document.getElementById('storePhone').value,map:document.getElementById('storeMap').value};persist();showMsg('storeMsg','success','Saved!');}
-function renderFaqAdmin(){document.getElementById('faqList').innerHTML=(S.faq||[]).map((f,i)=>`
+function renderFaqAdmin(){
+  const faqTog=document.getElementById('showFaqToggle');
+  if(faqTog)faqTog.checked=S.footer.showFaq!==false;document.getElementById('faqList').innerHTML=(S.faq||[]).map((f,i)=>`
   <div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;background:${f.active!==false?'#f8f9fa':'#f0f0f0'};padding:8px;border-radius:7px;border-left:3px solid ${f.active!==false?'var(--sec)':'#adb5bd'}">
     <div style="flex:1;display:flex;flex-direction:column;gap:5px">
       <input type="text" value="${esc(f.q)}" id="faq-q-${i}" placeholder="Question 问题"/>
@@ -2171,6 +2173,8 @@ function addDiscount(){
   showMsg('discMsg','success','Code added!');
 }
 function renderDiscountList(){
+  const discTog=document.getElementById('discToggle');
+  if(discTog)discTog.checked=S.discountEnabled!==false;
   const el=document.getElementById('discountList');if(!el)return;
   if(!S.discounts.length){el.innerHTML='<div class="empty">No codes.</div>';return;}
   el.innerHTML=S.discounts.map((d,i)=>{
@@ -2335,6 +2339,9 @@ function loadAdminInputs(){const sv=(id,val)=>{const el=document.getElementById(
   const snEl=document.getElementById('bShowShopNow');if(snEl)snEl.checked=S.branding.showShopNow!==false;
   const neEl=document.getElementById('newEmail');if(neEl)neEl.placeholder=`Current: ${S.settings.email}`;
   const ceEl=document.getElementById('contactEnabled');if(ceEl)ceEl.checked=S.footer.contactEnabled!==false;
+  const faqEl=document.getElementById('showFaqToggle');if(faqEl)faqEl.checked=S.footer.showFaq!==false;
+  const tcEl=document.getElementById('showTcToggle');if(tcEl)tcEl.checked=S.footer.showTc!==false;
+  const discEl=document.getElementById('discToggle');if(discEl)discEl.checked=S.discountEnabled!==false;
   // Logo preview
   const lp=document.getElementById('logoImgPreview'),lw=document.getElementById('logoImgPreviewWrap');
   if(S.branding.logo&&S.branding.logo.startsWith('http')&&lp&&lw){lp.src=S.branding.logo;lw.style.display='';}else if(lw)lw.style.display='none';
