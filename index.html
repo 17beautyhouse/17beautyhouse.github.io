@@ -1150,6 +1150,9 @@ function calcFee(region,items){const ovr=items.filter(i=>i.shipOverride!=null);i
 function toggleLang(){lang=lang==='en'?'cn':'en';document.querySelector('.lang-btn').textContent=lang==='en'?'中文':'EN';document.querySelectorAll('[data-en]').forEach(el=>el.textContent=lang==='en'?el.dataset.en:el.dataset.cn);renderProducts();renderCart();renderSlideshow();applyBranding();}
 function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.hnav button').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');document.getElementById('nav-'+p)?.classList.add('active');if(p==='cart')renderCart();if(p==='account')renderAccountPage();if(p==='checkout')renderCheckoutPage();if(p==='admin'){renderProductList();renderShippingForm();renderBankAdmin();loadAdminInputs();loadPopupAdminInputs();renderOrdersList();renderCustomerList();renderMessagesList();renderColorSwatches();renderFaqAdmin();renderSlideEditorList();document.getElementById('tcText').value=S.tc||'';renderDiscountList();document.getElementById('discToggle').checked=S.discountEnabled;}}
 window._appInit=function(){
+  // Sync orderCounter — always take the higher value to prevent duplicate order numbers
+  if(window._orderCounter>orderCounter){orderCounter=window._orderCounter;}
+  else{window._orderCounter=orderCounter;}
   applyBranding();
   // Load product images from Firebase then render
   window._fbGetCol('productImages').then(prodImgDocs=>{
@@ -2520,7 +2523,10 @@ function savePopup(){
   p.btnTextCn=document.getElementById('popupBtnCn')?.value||'继续购物';
   const urlInp=document.getElementById('popupImgUrl')?.value.trim();
   if(urlInp)p.img=urlInp;
-  persist();showMsg('popupSaveMsg','success','Popup saved! 已保存');
+  persist();
+  // Also save to Firebase immediately so popup.enabled is reflected after page refresh
+  if(window._fbPersist)window._fbPersist().catch(()=>{});
+  showMsg('popupSaveMsg','success','Popup saved! 已保存');
 }
 function loadPopupAdminInputs(){
   const p=S.popup;
