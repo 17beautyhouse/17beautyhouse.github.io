@@ -1842,6 +1842,17 @@ function saveShipping(){REGIONS.forEach(r=>{const k=r.replace(/[^a-z]/gi,'_');co
 function renderBankAdmin(){const el=document.getElementById('bankAdminList');el.innerHTML=(S.banks||[]).map((b,i)=>`<div class="bank-admin-item"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><label class="toggle-sw"><input type="checkbox" ${b.active?'checked':''} onchange="toggleBank(${i},this.checked)"><span class="slider"></span></label><span style="font-weight:600">${esc(b.name||'Unnamed')}</span><span style="font-size:.74rem;color:${b.active?'#0f5132':'var(--muted)'}">${b.active?'● Visible':'○ Hidden'}</span></div><div class="fr"><div class="fg"><label>Bank Name</label><input type="text" value="${esc(b.name)}" onchange="updBank(${i},'name',this.value)"/></div><div class="fg"><label>Account Name</label><input type="text" value="${esc(b.accName)}" onchange="updBank(${i},'accName',this.value)"/></div></div><div class="fr"><div class="fg"><label>Account No.</label><input type="text" value="${esc(b.accNo)}" onchange="updBank(${i},'accNo',this.value)"/></div><div class="fg"><label>Extra Info</label><input type="text" value="${esc(b.extra)}" onchange="updBank(${i},'extra',this.value)"/></div></div><div class="fg"><label>QR Code</label><div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:4px"><div><div class="upload-area" style="padding:7px;display:inline-block" onclick="document.getElementById('qrf-${i}').click()"><span style="font-size:.78rem">📁 Upload QR</span><input type="file" id="qrf-${i}" accept="image/*" onchange="uploadQR(${i},event)" style="display:none"/></div><input type="text" placeholder="or paste URL" value="${b.qr&&!b.qr.startsWith('data:')?esc(b.qr):''}" onchange="updBank(${i},'qr',this.value)" style="margin-top:4px;width:180px"/></div>${b.qr?`<div style="position:relative"><img src="${b.qr}" class="bank-qr-admin" alt="QR"/><button class="img-remove-btn" onclick="updBank(${i},'qr','');renderBankAdmin()">✕</button></div>`:''}</div></div><button class="del-btn" <div style="display:flex;gap:8px;margin-top:8px"><button class="save-btn" onclick="saveBank(${i})">💾 Save</button><button class="del-btn" onclick="delBank(${i})">Delete</button></div><div class="msg" id="bankMsg-${i}" style="margin-top:4px"></div>`).join('');}
 function toggleBank(i,v){S.banks[i].active=v;persist();renderBankAdmin();}
 function saveBank(i){
+  // Read all input values directly before saving (in case onchange didn't fire)
+  const card=document.querySelectorAll('.bank-admin-item')[i];
+  if(card){
+    const inputs=card.querySelectorAll('input[type=text]');
+    if(inputs[0])S.banks[i].name=inputs[0].value;
+    if(inputs[1])S.banks[i].accName=inputs[1].value;
+    if(inputs[2])S.banks[i].accNo=inputs[2].value;
+    if(inputs[3])S.banks[i].extra=inputs[3].value;
+    // inputs[4] is QR URL paste - handle separately
+    if(inputs[4]&&inputs[4].value&&!inputs[4].value.startsWith('data:'))S.banks[i].qr=inputs[4].value;
+  }
   if(window._saveBankQRFb)window._saveBankQRFb().then(()=>persist());
   else persist();
   showMsg('bankMsg-'+i,'success','Saved! ✅');
