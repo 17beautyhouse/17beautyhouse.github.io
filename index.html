@@ -610,6 +610,25 @@ footer{background:#1d3557;color:#fff;padding:36px 18px 18px;margin-top:auto}
 #fb-loading{display:none;position:fixed;inset:0;background:rgba(255,255,255,.95);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:14px}
 .fb-spinner{width:44px;height:44px;border:4px solid #eee;border-top-color:#e63946;border-radius:50%;animation:fbs .8s linear infinite}
 @keyframes fbs{to{transform:rotate(360deg)}}
+
+/* Mobile fixes */
+html,body{overflow-x:hidden;max-width:100vw}
+.var-table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.admin-tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+@media(max-width:620px){
+  header{padding:0 10px}
+  .hnav{gap:1px}
+  .hnav button{font-size:.75rem;padding:4px 5px}
+  main{padding:10px}
+  .co-card{padding:14px 12px}
+  .fr{gap:8px}
+  .checkout-wrap{padding:10px 8px}
+  .var-table th,.var-table td{padding:4px 3px;font-size:.72rem}
+  .admin-tabs button{font-size:.75rem;padding:5px 8px}
+  .footer-cols{flex-direction:column;gap:16px}
+  .prod-card{padding:10px}
+  .order-card{padding:10px 8px}
+}
 </style>
 </head>
 <body>
