@@ -154,6 +154,7 @@ async function loadFromFirebase(){
         if(cfg[k]!=null) window._S[k]=cfg[k];
       });
       if(cfg.orderCounter!=null) window._orderCounter=cfg.orderCounter;
+      if(cfg.pickupEnabled!=null) window._S.pickupEnabled=cfg.pickupEnabled;
     }
 
     // Load products from products/ collection + images from productImages/
@@ -255,7 +256,8 @@ window._fbPersist = async function(){
       faq:window._S.faq, tc:window._S.tc,
       discounts:window._S.discounts, discountEnabled:window._S.discountEnabled,
       msgTemplates:window._S.msgTemplates, productLang:window._S.productLang,
-      popup:stripBase64(window._S.popup), orderCounter:window._orderCounter
+      popup:stripBase64(window._S.popup), orderCounter:window._orderCounter,
+      pickupEnabled:window._S.pickupEnabled!==false
     });
     await fbSet('store/config', cfgQuick);
 
@@ -1152,7 +1154,16 @@ const COLORS=['#e63946','#2196F3','#4CAF50','#FF9800','#9C27B0','#009688','#F062
 let S={products:[],shipping:{'West Malaysia 西马':{method:'weight',tiers:[{maxWeight:500,fee:8},{maxWeight:1000,fee:11},{maxWeight:2000,fee:15},{maxWeight:99999,fee:20}],amtTiers:[{maxAmt:50,fee:10},{maxAmt:100,fee:6},{maxAmt:99999,fee:0}],freeAbove:150},'East Malaysia 东马':{method:'weight',tiers:[{maxWeight:500,fee:15},{maxWeight:1000,fee:20},{maxWeight:2000,fee:28},{maxWeight:99999,fee:38}],amtTiers:[{maxAmt:100,fee:18},{maxAmt:200,fee:10},{maxAmt:99999,fee:0}],freeAbove:300},'Singapore':{method:'weight',tiers:[{maxWeight:500,fee:20},{maxWeight:1000,fee:28},{maxWeight:2000,fee:38},{maxWeight:99999,fee:55}],amtTiers:[{maxAmt:150,fee:25},{maxAmt:300,fee:15},{maxAmt:99999,fee:0}],freeAbove:500}},banks:[{id:'b1',name:'Maybank',accName:'17 Beauty House',accNo:'',extra:'',qr:'',active:true}],slides:[{img:'',overlayColor:'#000000',overlayOpacity:.35,titleEn:'Welcome to 17 Beauty House',titleCn:'欢迎光临17 Beauty House',subEn:'Quality beauty & wellness products',subCn:'优质美妆健康产品'}],settings:{password:'17admin@1717',email:'17beauty@17shop.com'},branding:{shopEn:'17 Beauty House',shopCn:'17 Beauty House',logo:'🛍️',color:'#e63946',cdEnabled:false,cdEnd:'',cdLabel:'⏰ Sale ends in:',googleMap:'',googleMapLabel:'📍 Find us on Google Maps',showMap:false},footer:{company:'17 Beauty House',address:'',phone:'',email:'',waNum:'',waMsg:"Hi, I'd like to enquire about your products.",contactEnabled:false,showFaq:false,showTc:false},store:{addr:'',hours:'',phone:'',map:''},faq:[],tc:'',orders:[],customers:[],contactMessages:[],discounts:[],discountEnabled:true,msgTemplates:['Thank you for contacting us! We will reply within 24 hours.'],productLang:'both',popup:{enabled:false,img:'',title:'',titleCn:'',msg:'',msgCn:'',btnText:'Continue Shopping',btnTextCn:'继续购物',showOrder:true},pickupEnabled:true};
 window._S=S;
 
-function persist(){try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter}));}catch(e){}if(window._fbPersist){window._fbPersist().catch(e=>console.error('fb-persist',e));}}
+let _persistFbTimer=null;
+function persist(){
+  // Always write localStorage immediately
+  try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter}));}catch(e){}
+  // Debounce Firebase writes — max once per 1.5 seconds
+  clearTimeout(_persistFbTimer);
+  _persistFbTimer=setTimeout(()=>{
+    if(window._fbPersist)window._fbPersist().catch(e=>console.error('fb-persist',e));
+  },1500);
+}
 function genId(){
   // Always sync from highest existing order ID to prevent duplicates
   const maxExisting=S.orders.reduce((m,o)=>{const n=parseInt((o.id||'').replace(/\D/g,''))||0;return Math.max(m,n);},0);
@@ -1913,8 +1924,14 @@ function togglePickup(v){
   S.pickupEnabled=v;
   const lbl=document.getElementById('pickupEnabledLabel');
   if(lbl)lbl.textContent=v?'Enabled 已启用':'Disabled 已关闭';
-  persist();
-  showMsg('shippingMsg','success',v?'Store Pickup enabled!':'Store Pickup disabled!');
+  // Save to localStorage immediately
+  try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter}));}catch(e){}
+  // Debounce Firebase write to avoid write stream exhaustion
+  clearTimeout(window._pickupSaveTimer);
+  window._pickupSaveTimer=setTimeout(()=>{
+    if(window._fbPersist)window._fbPersist().catch(e=>console.error('pickup-persist',e));
+  },1500);
+  showMsg('shippingMsg','success',v?'Store Pickup enabled! ✅':'Store Pickup disabled! ✅');
 }
 function renderShippingForm(){
   const tog=document.getElementById('pickupEnabledToggle');
