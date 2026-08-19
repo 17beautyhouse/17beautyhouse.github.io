@@ -1373,7 +1373,16 @@ function renderConvMsgs(m){
 function toggleConv(id,el,msgId){const d=document.getElementById(id);const isOpen=d.classList.contains('open');d.classList.toggle('open');const m=S.contactMessages.find(x=>x.id===msgId);if(m&&!m.read&&!isOpen){m.read=true;persist();el.classList.remove('unread');const h=el.querySelector('h4');if(h)h.textContent=h.textContent.replace('🔴 ','');renderMessagesList();}if(!isOpen){const cm=document.getElementById('cm-'+msgId);if(cm)cm.scrollTop=cm.scrollHeight;}}
 function sendAdminReply(msgId){const input=document.getElementById('ri-'+msgId);const text=input?.value.trim();if(!text)return;const m=S.contactMessages.find(x=>x.id===msgId);if(!m)return;if(!m.replies)m.replies=[];m.replies.push({role:'admin',text,date:new Date().toLocaleString()});if(window._saveMsgFb)window._saveMsgFb(m).then(()=>persist());else persist();const cm=document.getElementById('cm-'+msgId);if(cm){cm.innerHTML=renderConvMsgs(m);cm.scrollTop=cm.scrollHeight;}input.value='';}
 function markMsgRead(id){const m=S.contactMessages.find(x=>x.id===id);if(m){m.read=true;persist();renderMessagesList();}}
-function delMsg(id){if(confirm('Delete?')){S.contactMessages=S.contactMessages.filter(x=>x.id!==id);persist();renderMessagesList();}}
+function delMsg(id){
+  if(!confirm('Delete this message? 删除此留言？'))return;
+  const m=S.contactMessages.find(x=>x.id===id);
+  const fbId=m?(m._fbId||m.id):id;
+  S.contactMessages=S.contactMessages.filter(x=>x.id!==id);
+  // Delete from Firebase using _fbId (Firestore document ID)
+  if(window._delMsgFb&&fbId)window._delMsgFb(fbId).catch(e=>console.error('delMsg fb error',e));
+  persist();
+  renderMessagesList();
+}
 function clearMsgFilter(){['msgFName','msgFPhone','msgFEmail'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderMessagesList();}
 function dispPrice(p){const active=(p.variants||[]).filter(v=>v.active!==false);if(!active.length)return`RM ${p.basePrice.toFixed(2)}`;const ps=active.map(v=>v.price);const mn=Math.min(...ps),mx=Math.max(...ps);return mn===mx?`RM ${mn.toFixed(2)}`:`RM ${mn.toFixed(2)} – ${mx.toFixed(2)}`;}
 function getVD(p,vn){if(!p.variants||!p.variants.length)return{price:p.basePrice,weight:0,shipOverride:null};return p.variants.find(v=>v.name===vn)||{price:p.basePrice,weight:0,shipOverride:null};}
