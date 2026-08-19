@@ -2558,27 +2558,41 @@ function confirmResetOrders(){
   resetAllOrders();
 }
 async function resetAllOrders(){
-  showMsg('resetOrdersMsg','success','⏳ Deleting... please wait...');
-  // Delete all orders from Firebase
-  const orderIds=S.orders.map(o=>o.id).filter(Boolean);
-  if(window._fbDel){
-    await Promise.all(orderIds.map(id=>Promise.all([
-      window._fbDel('orders/'+id).catch(()=>{}),
-      window._fbDel('orderReceipts/'+id).catch(()=>{})
-    ])));
+  const btn=document.querySelector('[onclick="confirmResetOrders()"]');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Deleting...';}
+  showMsg('resetOrdersMsg','success','⏳ Deleting from Firebase... please wait...');
+  try{
+    // Use _fbId (Firestore document ID) — NOT o.id (TWZB#00004)
+    const fbDelTasks=S.orders.map(o=>{
+      const fbId=o._fbId||o.id;
+      return Promise.all([
+        window._fbDel?window._fbDel('orders/'+fbId).catch(()=>{}):Promise.resolve(),
+        window._fbDel?window._fbDel('orderReceipts/'+fbId).catch(()=>{}):Promise.resolve()
+      ]);
+    });
+    await Promise.all(fbDelTasks);
+
+    // Reset local state
+    S.orders=[];
+    orderCounter=0;
+    window._orderCounter=0;
+    S.customers.forEach(c=>{c.orders=[];});
+
+    // Save config with reset counter — merge with existing config, don't overwrite
+    // Write localStorage immediately
+    try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter:0}));}catch(e){}
+
+    // Write full config to Firebase (so orderCounter:0 is persisted properly)
+    if(window._fbPersist)await window._fbPersist().catch(()=>{});
+
+    showMsg('resetOrdersMsg','success','✅ Done! All orders deleted. Next order: TWZB#00001 完成！');
+    renderOrdersList();
+  }catch(err){
+    showMsg('resetOrdersMsg','error','❌ Error: '+err.message);
+    console.error('resetAllOrders error',err);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='🗑️ Reset All Orders & Counter';}
   }
-  // Reset orderCounter in Firebase via persist
-  S.orders=[];
-  orderCounter=0;
-  window._orderCounter=0;
-  // Clear orders from all customers
-  S.customers.forEach(c=>{c.orders=[];});
-  // Reset in Firebase store/config via persist
-  persist();
-  // Also explicitly reset the counter field in Firebase
-  if(window._fbSet)window._fbSet('store/config',{orderCounter:0}).catch(()=>{});
-  showMsg('resetOrdersMsg','success','✅ Done! All orders deleted. Next order will be TWZB#00001. 完成！');
-  renderOrdersList();
 }
 function showMsg(id,type,text){const m=document.getElementById(id);if(!m)return;m.className='msg '+type;m.textContent=text;setTimeout(()=>m.className='msg',3500);}
 // ======= CHECKOUT POPUP =======
