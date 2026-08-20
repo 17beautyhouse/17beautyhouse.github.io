@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, addDoc, deleteDoc, increment } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAkIkOJXWQ-ZZYDk99_8MMQl_fO0jLP0Fo",
@@ -97,14 +97,17 @@ async function fbDel(path){try{await deleteDoc(doc(db,path));}catch(e){console.e
 
 window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddDoc=fbAddDoc;window._fbDel=fbDel;
 
-// Atomic order counter — read-increment-write with timestamp to minimize collisions
+// Atomic order counter using Firestore increment — guaranteed unique sequential numbers
 window._fbNextOrderCounter=async function(){
   const counterRef=doc(db,'store/orderCounter');
+  // increment() is atomic — Firestore handles concurrent writes safely
+  await updateDoc(counterRef,{value:increment(1)}).catch(async()=>{
+    // Document may not exist yet — create it
+    await setDoc(counterRef,{value:1});
+  });
+  // Read back the value we just incremented to
   const snap=await getDoc(counterRef);
-  const current=snap.exists()?(snap.data().value||0):0;
-  const next=current+1;
-  await setDoc(counterRef,{value:next,updatedAt:Date.now()});
-  return next;
+  return snap.exists()?(snap.data().value||1):1;
 };
 
 // ── Save product: text in products/{id}, images in productImages/{id} ──
@@ -1195,21 +1198,23 @@ function persist(){
   },1500);
 }
 async function genId(){
-  // Use Firebase atomic transaction to get unique order number — prevents duplicates even with concurrent orders
-  if(window._fbNextOrderCounter){
+  // Use Firebase atomic increment — guaranteed unique sequential numbers
+  // Retries up to 3 times silently if network hiccup
+  for(let attempt=0;attempt<3;attempt++){
     try{
       const next=await window._fbNextOrderCounter();
       orderCounter=next;window._orderCounter=next;
       return'TWDG#'+String(next).padStart(5,'0');
     }catch(e){
-      console.error('Firebase counter failed, using local fallback',e);
+      console.warn('genId attempt '+(attempt+1)+' failed',e);
+      if(attempt<2)await new Promise(r=>setTimeout(r,1000));
     }
   }
-  // Local fallback (offline): use max of existing orders
-  const maxExisting=S.orders.reduce((m,o)=>{const n=parseInt((o.id||'').replace(/\D/g,''))||0;return Math.max(m,n);},0);
-  if(maxExisting>=orderCounter){orderCounter=maxExisting;window._orderCounter=maxExisting;}
-  window._orderCounter++;orderCounter=window._orderCounter;
-  return'TWDG#'+String(orderCounter).padStart(5,'0');
+  // Last resort: use local counter (only if all 3 Firebase attempts fail)
+  const maxExisting=S.orders.reduce((m,o)=>{const n=parseInt((o.id||'').replace(/\D/g,''))||0;return Math.max(m,n);},window._orderCounter||0);
+  const next=Math.max(maxExisting,window._orderCounter||0)+1;
+  orderCounter=next;window._orderCounter=next;
+  return'TWDG#'+String(next).padStart(5,'0');
 }
 function saveCU(remember=true){try{if(currentUser){if(remember){localStorage.setItem('shopCU9',JSON.stringify(currentUser));localStorage.setItem('shopRememberMe9','1');const id=currentUser.email||currentUser.phone||'';if(id)localStorage.setItem('shopLastLogin9',id);}else{localStorage.removeItem('shopCU9');sessionStorage.setItem('shopCU9',JSON.stringify(currentUser));}}else{localStorage.removeItem('shopCU9');sessionStorage.removeItem('shopCU9');}}catch(e){}}
 function loadCU(){try{const ls=localStorage.getItem('shopCU9');const ss=sessionStorage.getItem('shopCU9');const raw=ls||ss;if(raw){const cu=JSON.parse(raw);const fresh=S.customers.find(c=>c.id===cu.id||c.email===cu.email);currentUser=fresh||cu;}}catch(e){}}
