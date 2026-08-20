@@ -2453,7 +2453,7 @@ function exportExcel(){
   hdrRow.alignment={vertical:'middle',horizontal:'center'};
   hdrRow.height=20;
 
-  // Track receipt rows
+  // Track which excel rows have receipt images
   const receiptRows=[];
 
   // Add data rows
@@ -2473,10 +2473,13 @@ function exportExcel(){
         discount:idx===0?parseFloat((o.discount||0).toFixed(2)):'',
         total:idx===0?parseFloat(o.total.toFixed(2)):'',
         bank:o.custBank||'', bankHolder:o.custBankHolder||'', ref:o.ref||'',
-        receipt:idx===0?(o.receipt?'✅ Receipt uploaded':'❌ No receipt'):''
+        receipt:''
       };
       const row=ws.addRow(rowData);
-      row.height=18;
+      row.height=idx===0&&o.receipt?160:18;
+      if(idx===0&&o.receipt){
+        receiptRows.push({rowNum:row.number,base64:o.receipt});
+      }
       row.alignment={vertical:'middle'};
       // Zebra striping
       if((ws.rowCount%2)===0){
@@ -2492,7 +2495,25 @@ function exportExcel(){
     cell.border={bottom:{style:'medium',color:{argb:'FF1D3557'}}};
   });
 
-  const imgPromises=[];
+  const imgPromises=receiptRows.map((info,i)=>{
+    return new Promise(resolve=>{
+      try{
+        const match=info.base64.match(/^data:image\/(png|jpeg|jpg|gif|webp);base64,(.+)$/i);
+        if(!match){resolve();return;}
+        const ext=match[1].toLowerCase()==='jpg'?'jpeg':match[1].toLowerCase();
+        const validExt=['png','jpeg','gif'].includes(ext)?ext:'png';
+        const pureBase64=match[2];
+        const imgId=wb.addImage({base64:pureBase64,extension:validExt});
+        const rowIdx=info.rowNum-1; // 0-based
+        ws.addImage(imgId,{
+          tl:{col:24,row:rowIdx},
+          br:{col:25,row:rowIdx+1},
+          editAs:'oneCell'
+        });
+        resolve();
+      }catch(e){console.warn('img embed failed row',info.rowNum,e);resolve();}
+    });
+  });
 
   Promise.all(imgPromises).then(()=>{
     wb.xlsx.writeBuffer().then(buffer=>{
