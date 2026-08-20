@@ -1173,7 +1173,7 @@ function genId(){
   const maxExisting=S.orders.reduce((m,o)=>{const n=parseInt((o.id||'').replace(/\D/g,''))||0;return Math.max(m,n);},0);
   if(maxExisting>=orderCounter){orderCounter=maxExisting;window._orderCounter=maxExisting;}
   window._orderCounter++;orderCounter=window._orderCounter;
-  return'TWZB#'+String(orderCounter).padStart(5,'0');
+  return'TWDG#'+String(orderCounter).padStart(5,'0');
 }
 function saveCU(remember=true){try{if(currentUser){if(remember){localStorage.setItem('shopCU9',JSON.stringify(currentUser));localStorage.setItem('shopRememberMe9','1');const id=currentUser.email||currentUser.phone||'';if(id)localStorage.setItem('shopLastLogin9',id);}else{localStorage.removeItem('shopCU9');sessionStorage.setItem('shopCU9',JSON.stringify(currentUser));}}else{localStorage.removeItem('shopCU9');sessionStorage.removeItem('shopCU9');}}catch(e){}}
 function loadCU(){try{const ls=localStorage.getItem('shopCU9');const ss=sessionStorage.getItem('shopCU9');const raw=ls||ss;if(raw){const cu=JSON.parse(raw);const fresh=S.customers.find(c=>c.id===cu.id||c.email===cu.email);currentUser=fresh||cu;}}catch(e){}}
@@ -2578,7 +2578,7 @@ async function resetAllOrders(){
   if(btn){btn.disabled=true;btn.textContent='⏳ Deleting...';}
   showMsg('resetOrdersMsg','success','⏳ Deleting from Firebase... please wait...');
   try{
-    // Use _fbId (Firestore document ID) — NOT o.id (TWZB#00004)
+    // Use _fbId (Firestore document ID) — NOT o.id (TWDG#00004)
     const fbDelTasks=S.orders.map(o=>{
       const fbId=o._fbId||o.id;
       return Promise.all([
@@ -2601,7 +2601,7 @@ async function resetAllOrders(){
     // Write full config to Firebase (so orderCounter:0 is persisted properly)
     if(window._fbPersist)await window._fbPersist().catch(()=>{});
 
-    showMsg('resetOrdersMsg','success','✅ Done! All orders deleted. Next order: TWZB#00001 完成！');
+    showMsg('resetOrdersMsg','success','✅ Done! All orders deleted. Next order: TWDG#00001 完成！');
     renderOrdersList();
   }catch(err){
     showMsg('resetOrdersMsg','error','❌ Error: '+err.message);
