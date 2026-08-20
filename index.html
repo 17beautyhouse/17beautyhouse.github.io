@@ -100,14 +100,16 @@ window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddD
 // Atomic order counter using Firestore increment — guaranteed unique sequential numbers
 window._fbNextOrderCounter=async function(){
   const counterRef=doc(db,'store/orderCounter');
-  // increment() is atomic — Firestore handles concurrent writes safely
-  await updateDoc(counterRef,{value:increment(1)}).catch(async()=>{
-    // Document may not exist yet — create it
-    await setDoc(counterRef,{value:1});
+  // Use runTransaction for true atomic read-increment-return
+  const {runTransaction}=await import('https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js');
+  const next=await runTransaction(db,async(tx)=>{
+    const snap=await tx.get(counterRef);
+    const cur=snap.exists()?(snap.data().value||0):0;
+    const nxt=cur+1;
+    tx.set(counterRef,{value:nxt});
+    return nxt;
   });
-  // Read back the value we just incremented to
-  const snap=await getDoc(counterRef);
-  return snap.exists()?(snap.data().value||1):1;
+  return next;
 };
 
 // ── Save product: text in products/{id}, images in productImages/{id} ──
