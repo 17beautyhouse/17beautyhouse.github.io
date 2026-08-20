@@ -11,7 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, deleteDoc, runTransaction, increment } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, collection, getDocs, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAkIkOJXWQ-ZZYDk99_8MMQl_fO0jLP0Fo",
@@ -97,18 +97,14 @@ async function fbDel(path){try{await deleteDoc(doc(db,path));}catch(e){console.e
 
 window._fbGet=fbGet;window._fbSet=fbSet;window._fbGetCol=fbGetCol;window._fbAddDoc=fbAddDoc;window._fbDel=fbDel;
 
-// Atomic order counter — uses Firestore transaction to prevent duplicate order numbers
-// Returns the next unique counter value (1-based)
+// Atomic order counter — read-increment-write with timestamp to minimize collisions
 window._fbNextOrderCounter=async function(){
   const counterRef=doc(db,'store/orderCounter');
-  const newVal=await runTransaction(db,async(tx)=>{
-    const snap=await tx.get(counterRef);
-    const current=snap.exists?(snap.data().value||0):0;
-    const next=current+1;
-    tx.set(counterRef,{value:next});
-    return next;
-  });
-  return newVal;
+  const snap=await getDoc(counterRef);
+  const current=snap.exists()?(snap.data().value||0):0;
+  const next=current+1;
+  await setDoc(counterRef,{value:next,updatedAt:Date.now()});
+  return next;
 };
 
 // ── Save product: text in products/{id}, images in productImages/{id} ──
