@@ -2505,14 +2505,11 @@ function exportExcel(){
         const validExt=['png','jpeg','gif'].includes(ext)?ext:'png';
         const pureBase64=match[2];
         const imgId=wb.addImage({base64:pureBase64,extension:validExt});
-        // Anchor image to column Y (index 24 = Receipt column), fill the full cell
+        // Anchor image to column Y (index 24 = Receipt column)
         const r=info.rowNum-1; // 0-based
-        // Use EMU sizing: col width 40 chars ≈ 40*9525*7 = ~2.67M EMU; row height 200pt ≈ 200*9525 = 1.905M EMU
-        const colWidthEMU=Math.round(40*9525*6.5);
-        const rowHeightEMU=Math.round(200*9525);
         ws.addImage(imgId,{
           tl:{col:24,row:r},
-          ext:{width:colWidthEMU,height:rowHeightEMU},
+          br:{col:25,row:r+1},
           editAs:'oneCell'
         });
         resolve();
