@@ -411,7 +411,7 @@ main{flex:1}
 .bank-detail-box{background:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:12px;margin-bottom:14px}
 .bank-detail-box h4{color:#f57f17;margin-bottom:6px;font-size:.92rem}
 .bank-detail-box p{font-size:.85rem;margin-bottom:3px}
-.bank-qr{max-width:140px;border-radius:7px;margin-top:8px;display:block}
+.bank-qr{width:100%;max-width:280px;border-radius:7px;margin-top:10px;display:block;cursor:pointer}
 .upload-area{border:2px dashed var(--border);border-radius:7px;padding:14px;text-align:center;cursor:pointer;background:#fafafa}
 .upload-area:hover{border-color:var(--pri);background:#fff5f5}
 .upload-area input{display:none}
@@ -1571,8 +1571,8 @@ function lwRegister(){
   currentUser=cu;saveCU(remember);if(window._saveCustFb)window._saveCustFb(cu).then(()=>persist());else persist();renderCheckoutPage();
 }
 function getActiveBanks(){return(S.banks||[]).filter(b=>b.active);}
-function renderBankSection(){const active=getActiveBanks();const wrap=document.getElementById('bankSelWrap');if(!wrap)return;if(!active.length){wrap.innerHTML=`<p style="font-size:.85rem;color:var(--muted)">No bank configured.</p>`;return;}if(active.length===1){const b=active[0];wrap.innerHTML=`<div class="bank-detail-box"><h4>🏦 ${esc(b.name)}</h4><p><b>Account Name:</b> ${esc(b.accName)}</p><p><b>Account No.:</b> ${esc(b.accNo)}</p>${b.extra?`<p style="color:#777;font-size:.82rem;margin-top:4px">${esc(b.extra)}</p>`:''}${b.qr?`<img src="${b.qr}" class="bank-qr" alt="QR"/>`:''}</div>`;return;}wrap.innerHTML=`<select id="bankSelect" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.87rem;margin-bottom:10px" onchange="renderSelBank()"><option value="">-- Select Bank --</option>${active.map((b,i)=>`<option value="${i}">${esc(b.name)}</option>`).join('')}</select><div id="bankDetailDisplay"></div>`;}
-function renderSelBank(){const sel=document.getElementById('bankSelect');const active=getActiveBanks();const idx=parseInt(sel.value);const dd=document.getElementById('bankDetailDisplay');if(isNaN(idx)||!active[idx]){dd.innerHTML='';return;}const b=active[idx];dd.innerHTML=`<div class="bank-detail-box"><h4>🏦 ${esc(b.name)}</h4><p><b>Account Name:</b> ${esc(b.accName)}</p><p><b>Account No.:</b> ${esc(b.accNo)}</p>${b.extra?`<p style="color:#777;font-size:.82rem">${esc(b.extra)}</p>`:''}${b.qr?`<img src="${b.qr}" class="bank-qr" alt="QR"/>`:''}</div>`;}
+function renderBankSection(){const active=getActiveBanks();const wrap=document.getElementById('bankSelWrap');if(!wrap)return;if(!active.length){wrap.innerHTML=`<p style="font-size:.85rem;color:var(--muted)">No bank configured.</p>`;return;}if(active.length===1){const b=active[0];wrap.innerHTML=`<div class="bank-detail-box"><h4>🏦 ${esc(b.name)}</h4><p><b>Account Name:</b> ${esc(b.accName)}</p><p><b>Account No.:</b> ${esc(b.accNo)}</p>${b.extra?`<p style="color:#777;font-size:.82rem;margin-top:4px">${esc(b.extra)}</p>`:''}${b.qr?`<img src="${b.qr}" class="bank-qr" alt="QR"/ onclick="window.open(this.src)" title="Click to enlarge / 点击放大">`:''}</div>`;return;}wrap.innerHTML=`<select id="bankSelect" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:.87rem;margin-bottom:10px" onchange="renderSelBank()"><option value="">-- Select Bank --</option>${active.map((b,i)=>`<option value="${i}">${esc(b.name)}</option>`).join('')}</select><div id="bankDetailDisplay"></div>`;}
+function renderSelBank(){const sel=document.getElementById('bankSelect');const active=getActiveBanks();const idx=parseInt(sel.value);const dd=document.getElementById('bankDetailDisplay');if(isNaN(idx)||!active[idx]){dd.innerHTML='';return;}const b=active[idx];dd.innerHTML=`<div class="bank-detail-box"><h4>🏦 ${esc(b.name)}</h4><p><b>Account Name:</b> ${esc(b.accName)}</p><p><b>Account No.:</b> ${esc(b.accNo)}</p>${b.extra?`<p style="color:#777;font-size:.82rem">${esc(b.extra)}</p>`:''}${b.qr?`<img src="${b.qr}" class="bank-qr" alt="QR"/ onclick="window.open(this.src)" title="Click to enlarge / 点击放大">`:''}</div>`;}
 function detectRegion(){
   const pc=document.getElementById('custPostcode').value.trim();
   const res=document.getElementById('regionResult');setErr('custPostcode',false);
@@ -2441,6 +2441,7 @@ function exportExcel(){
     {header:'Discount (RM)',key:'discount',width:13},
     {header:'Order Total (RM)',key:'total',width:15},
     {header:'Bank',key:'bank',width:14},
+    {header:'Bank Holder Name',key:'bankHolder',width:22},
     {header:'Bank Ref No.',key:'ref',width:16},
     {header:'Receipt',key:'receipt',width:22}
   ];
