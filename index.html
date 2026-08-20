@@ -1042,7 +1042,7 @@ html,body{overflow-x:hidden;max-width:100vw}
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f8d7da">
             <b style="font-size:.85rem">🔧 Fix Order Numbers 修正订单号码</b>
             <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">Re-number all orders by date (oldest = #00001). 按时间重新排序所有订单号码，最旧的订单 = #00001。</div>
-            <button onclick="confirmFixOrderNumbers()" style="background:#6610f2;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.88rem">🔧 Fix &amp; Renumber Orders</button>
+            <button onclick="applyManualOrderFix()" style="background:#6610f2;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.88rem">🔧 Fix &amp; Renumber Orders</button>
             <div class="msg" id="fixOrderMsg"></div>
           </div>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f8d7da">
@@ -2623,6 +2623,44 @@ function clearFavicon(){
   persist();
 }
 function saveSettings(){const ne=document.getElementById('newEmail').value.trim();const np=document.getElementById('newPwd').value;if(ne)S.settings.email=ne;if(np)S.settings.password=np;persist();showMsg('settingsMsg','success','Saved!');}
+async function applyManualOrderFix(){
+  // Manual fix: remap orders by exact time to correct TWDG numbers
+  // 19:33:18 → #00001, 19:34:40 → #00002, 19:35:55 → #00003, 19:44:36 → #00004, 19:58:37 → #00005
+  if(!confirm('Apply manual order number fix?\n按手动时间顺序重新编号？\n确认？'))return;
+  const btn=document.querySelector('[onclick="applyManualOrderFix()"]');
+  if(btn){btn.disabled=true;btn.textContent='⏳ Fixing...';}
+  showMsg('fixOrderMsg','success','⏳ Applying fix...');
+  try{
+    // Sort all orders by dateRaw oldest first
+    const sorted=[...S.orders].sort((a,b)=>new Date(a.dateRaw||a.date)-new Date(b.dateRaw||b.date));
+    for(let i=0;i<sorted.length;i++){
+      const o=sorted[i];
+      const newId='TWDG#'+String(i+1).padStart(5,'0');
+      const oldId=o.id;
+      if(oldId===newId)continue;
+      o.id=newId;
+      // Fix customer records
+      S.customers.forEach(c=>{
+        if(!c.orders)return;
+        const idx=c.orders.indexOf(oldId);
+        if(idx>-1){c.orders[idx]=newId;if(window._saveCustFb)window._saveCustFb(c).catch(()=>{});}
+      });
+      if(window._saveOrderFb)await window._saveOrderFb(o).catch(e=>console.warn(e));
+    }
+    // Set counter to 5 (so next order = #00006)
+    const newCounter=Math.max(sorted.length,5);
+    orderCounter=newCounter;window._orderCounter=newCounter;
+    if(window._fbSet)await window._fbSet('store/orderCounter',{value:newCounter}).catch(()=>{});
+    try{localStorage.setItem('shopv9',JSON.stringify({...S,orderCounter:newCounter}));}catch(e){}
+    if(window._fbPersist)await window._fbPersist().catch(()=>{});
+    showMsg('fixOrderMsg','success','✅ Done! Orders renumbered #00001~#000'+String(sorted.length).padStart(2,'0')+'. Next order: TWDG#000'+String(newCounter+1).padStart(2,'0'));
+    renderOrdersList();
+  }catch(e){
+    showMsg('fixOrderMsg','error','❌ Error: '+e.message);console.error(e);
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='🔧 Fix &amp; Renumber Orders';}
+  }
+}
 async function confirmFixOrderNumbers(){
   if(!confirm('Re-number ALL orders by date?\n按时间重新排号所有订单？\n\n最旧订单 → TWDG#00001\n最新订单 → TWDG#000XX\n\n⚠️ 此操作无法撤销！'))return;
   await fixOrderNumbers();
