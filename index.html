@@ -120,11 +120,14 @@ async function saveProduct(p) {
   // imgs array - each as separate field
   const imgs = await Promise.all((p.imgs||[]).map(i=>compressImage(i, 400)));
   // images array (objects with url) - compress each url
-  const images = await Promise.all((p.images||[]).map(async (im,idx2)=>{
+  // Ensure exactly one image is selected (first one if none selected)
+  const rawImages=p.images||[];
+  if(rawImages.length>0&&!rawImages.some(i=>i.selected))rawImages[0].selected=true;
+  const images = await Promise.all(rawImages.map(async (im,idx2)=>{
     if(im && im.url && im.url.startsWith('data:image')) {
-      return {...im, url: await compressImage(im.url, 400)};
+      return {...im, url: await compressImage(im.url, 400), _idx: idx2};
     }
-    return cleanFb(im)||{};
+    return {...(cleanFb(im)||{}), _idx: idx2};
   }));
   // Save main image doc
   await fbSet('productImages/'+p.id, cleanFb({img, imgs, images}));
@@ -1251,7 +1254,11 @@ window._appInit=function(){
       const imgData=finalImgMap[p._id]||finalImgMap[String(p.id)]||finalImgMap[p.id]||{};
       let images=Array.isArray(imgData.images)?imgData.images:[];
       const imgs=Array.isArray(imgData.imgs)?imgData.imgs:[];
-      // Sort: selected image first, then rest in original order
+      // Sort by saved index to preserve original order
+      if(images.length>1){
+        images.sort((a,b)=>(a._idx||0)-(b._idx||0));
+      }
+      // Ensure selected image is first
       if(images.length>1){
         const selIdx=images.findIndex(i=>i.selected);
         if(selIdx>0){const sel=images.splice(selIdx,1)[0];images=[sel,...images];}
