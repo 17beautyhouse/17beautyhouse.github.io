@@ -1041,6 +1041,16 @@ html,body{overflow-x:hidden;max-width:100vw}
           <p style="font-size:.85rem;color:var(--muted);margin-bottom:12px">Reset all test orders before going live. This will delete all orders, receipts, and reset the order counter to #00001. Customer accounts will be kept. 正式营业前清除所有测试订单，订单号重新从#00001开始。顾客账号保留。</p>
           <button onclick="confirmResetOrders()" style="background:#dc3545;color:#fff;border:none;padding:9px 18px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.88rem">🗑️ Reset All Orders &amp; Counter</button>
           <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f8d7da">
+            <b style="font-size:.85rem">📦 Recalculate Stock 重新计算库存</b>
+            <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">Recalculate all variant stock based on actual orders. Set base stock first, then click. 先设好基础库存，再点击根据订单重新计算。</div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+              <label style="font-size:.82rem">Base Stock (each variant):</label>
+              <input type="number" id="baseStockVal" min="0" value="200" style="width:80px;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:.88rem"/>
+            </div>
+            <button onclick="recalcStock()" style="background:#0d6efd;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.88rem">📦 Recalculate Stock</button>
+            <div class="msg" id="recalcStockMsg"></div>
+          </div>
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #f8d7da">
             <b style="font-size:.85rem">🔧 Fix Order Numbers 修正订单号码</b>
             <div style="font-size:.78rem;color:var(--muted);margin-bottom:8px">Re-number all orders by date (oldest = #00001). 按时间重新排序所有订单号码，最旧的订单 = #00001。</div>
             <button onclick="applyManualOrderFix()" style="background:#6610f2;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-weight:700;font-size:.88rem">🔧 Fix &amp; Renumber Orders</button>
@@ -1678,11 +1688,11 @@ async function submitOrder(){closeModal();const name=document.getElementById('cu
   const p=S.products.find(x=>x.id===item.id);
   if(!p)return;
   // Deduct product-level stock (if not unlimited)
-  if(p.stock>0)p.stock=Math.max(0,p.stock-item.qty);
+  if(p.stock!=null&&p.stock!==-1)p.stock=Math.max(0,p.stock-item.qty);
   // Deduct variant-level stock (if variant has its own stock)
   if(item.variation&&p.variants){
     const v=p.variants.find(vv=>vv.name===item.variation);
-    if(v&&v.stock!=null&&v.stock>0)v.stock=Math.max(0,v.stock-item.qty);
+    if(v&&v.stock!=null&&v.stock!==-1)v.stock=Math.max(0,v.stock-item.qty);
   }
 });let cu=S.customers.find(c=>c.email===email||c.phone===phone);if(!cu){cu={id:'CU'+Date.now(),name,email,phone,joinDate:new Date().toLocaleString(),joinDateRaw:new Date().toISOString(),orders:[]};S.customers.push(cu);}if(!cu.orders)cu.orders=[];cu.orders.push(order.id);currentUser=cu;saveCU();cart=[];receiptBase64='';detectedRegion='';window._cartRemarks='';document.getElementById('cartBadge').textContent=0;// Save affected products (stock changes) to Firebase
 const affectedProds=S.products.filter(p=>order.items.some(i=>i.id===p.id));
@@ -2712,6 +2722,48 @@ async function fixOrderNumbers(){
   }finally{
     if(btn){btn.disabled=false;btn.innerHTML='🔧 Fix &amp; Renumber Orders';}
   }
+}
+async function recalcStock(){
+  const base=parseInt(document.getElementById('baseStockVal').value)||200;
+  if(!confirm('Recalculate stock? Base stock: '+base+'. Update all variant stocks based on orders?'))return;
+  showMsg('recalcStockMsg','success','⏳ Calculating...');
+  
+  // Count sold qty per product variant from all non-archived orders
+  const soldMap={};
+  S.orders.filter(o=>o.status!=='archived').forEach(o=>{
+    o.items.forEach(item=>{
+      const key=item.id+'|'+(item.variation||'');
+      soldMap[key]=(soldMap[key]||0)+item.qty;
+    });
+  });
+  
+  // Update each product variant stock
+  const updated=[];
+  S.products.forEach(p=>{
+    let changed=false;
+    if(p.variants&&p.variants.length){
+      p.variants.forEach(v=>{
+        if(v.stock===-1)return; // skip unlimited
+        const key=p.id+'|'+v.name;
+        const sold=soldMap[key]||0;
+        const correct=Math.max(0,base-sold);
+        if(v.stock!==correct){
+          console.log(p.nameEn,v.name,': was',v.stock,'→',correct,'(sold:',sold,')');
+          v.stock=correct;
+          changed=true;
+        }
+      });
+    }
+    if(changed)updated.push(p);
+  });
+  
+  // Save to Firebase
+  if(updated.length){
+    await Promise.all(updated.map(p=>window._saveProductFb?window._saveProductFb(p).catch(()=>{}):Promise.resolve()));
+  }
+  persist();
+  showMsg('recalcStockMsg','success','✅ Done! Updated '+updated.length+' products. 完成！更新了'+updated.length+'个产品。');
+  renderProductList();
 }
 async function setOrderCounter(){
   const val=parseInt(document.getElementById('setCounterVal').value);
